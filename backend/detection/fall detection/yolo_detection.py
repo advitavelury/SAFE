@@ -1,11 +1,15 @@
+from abc import ABC, abstractmethod
 import cv2
 from ultralytics import YOLO
 import math
 import numpy as np
 import os
-import time 
+import time
+from pathlib import Path
+from os.path import join 
 
-DOWN_HOLD_SECONDS = 5.0        # persistence required to alert
+
+DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
 KP_CONF = 0.5 # confidence level required for a keypoint coordinates to be valid 
 # COCO keypoint indices
@@ -14,6 +18,8 @@ L_SHOULDER, R_SHOULDER = 5, 6
 L_HIP, R_HIP = 11, 12
 L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
+
+PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
 
 class Person():
     def __init__(self, id):
@@ -24,11 +30,11 @@ class Person():
         self.alerted = False  # if staff has been alerted
 
 
-    def manage_person_posture(self, posture:str):
-        now = time.monotonic()
+    def manage_person_posture(self, posture:str, video_time = None):
+        now = time.monotonic() if video_time is None else video_time
         if self.current_position is None: # if the current position is None, we are starting the tracking for the first time
             self.current_position = posture
-            return 
+            return self.current_position
         if posture.lower() == "standing" or posture.lower() == "falling":
             if self.current_position == "lying down" and self.down_since is not None: # if the person has been identified as fallen down
                 # only reset the state to standing if they have been standing for more than the recover grace period
@@ -44,11 +50,12 @@ class Person():
             if self.current_position == "falling" and self.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
                 self.down_since = now # start the down since timer 
             self.current_position = posture
+        return self.current_position
 
-    def alert_fall_event(self) -> bool: 
+    def alert_fall_event(self, video_time = None) -> bool: 
         # if a person has been "lying down" for more than 5 seconds, then alert a fall event
         # works under the assumptiont that the application is running at a minimum of 10 fps 
-        now = time.monotonic()
+        now = time.monotonic() if video_time is None else video_time
         if self.current_position is None:
             return False 
         elif self.current_position.lower() == "lying down":
@@ -56,42 +63,48 @@ class Person():
                 return True 
         return False
 
-class FallDetector():
+class FallDetector(ABC):
     def __init__(self):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
-        self.cam = cv2.VideoCapture(0)
         self.model = YOLO('yolo26n-pose.pt')
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
         self.bytetrack_yaml_path = os.path.join(dir, 'bytetrack.yaml')        
-        self.fps = 0 
-        self.person_posture = {}
-    
-    def run(self):
-        cam = self.cam
-        model = self.model
-        prev_time = 0 
-        new_time = 0 
         
+        self.person_posture = {}
+
+    @abstractmethod
+    def get_cam(self):
+        pass
+
+    @abstractmethod 
+    def is_video_mode(self):
+        pass 
+
+    def run(self):
+        cam = self.get_cam()
+        model = self.model
+                
         while True:
             ret, frame = cam.read()
-            frame_h, frame_w = frame.shape[0], frame.shape[1]
-            annotated_frame = None 
 
             # Exit the loop if the frame was not captured or 'q' is pressed 
             if not ret or (cv2.waitKey(1) == ord('q')):
                 break
-            
-            new_time = time.perf_counter()
-            time_delta = new_time - prev_time
-            self.fps = 1/time_delta if time_delta > 0 else 0 
-            prev_time = new_time
+
+            if self.is_video_mode():
+                self.frame_index += 1 
+            frame_h, frame_w = frame.shape[0], frame.shape[1]
+            annotated_frame = None 
+
+            self.fps = self.get_fps() 
+            video_time =  self.get_video_time() if self.is_video_mode() else None  
 
             fps_text = f"FPS: {int(self.fps)}"
             results = model.track(source=frame, 
                                 persist=True, 
                                 classes = [0], # only track class 0 = person,
-                                device = 'cpu', # forces CPU regardless of GPU availability
+                                device = 'cpu', # forces CPU regardless of GPU availability,
                                 tracker=self.bytetrack_yaml_path)
             # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame, 
             # we can access the result by doing result[0]. 
@@ -112,15 +125,38 @@ class FallDetector():
                         person = Person(person_id)
                         self.person_posture[person_id] = person
                     box = boxes[i]
+                    box_midpoint = (int(box[0] + abs(box[0]-box[2])/2), int(box[1] + abs(box[1]-box[3])/2))
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
                     posture = self.classify_posture(kp = kp, conf=confidence, box = box, frame_h=frame_h)
-                    person.manage_person_posture(posture)
-                    alert = person.alert_fall_event()
+                    if posture is None:  # this could happen when the frame could not pick up valid keypoints
+                        continue 
+                    position = person.manage_person_posture(posture, video_time= video_time)
+                    cv2.putText(
+                                annotated_frame, 
+                                position, 
+                                box_midpoint, # Coordinates (X, Y)
+                                cv2.FONT_HERSHEY_SIMPLEX,   # Font type
+                                1,                          # Font scale
+                                (255, 0, 0),                # Color (BGR format: Blue)
+                                2,                          # Line thickness
+                                cv2.LINE_AA
+                            )
+                    alert = person.alert_fall_event(video_time=video_time)
                     if alert:
+                        cv2.putText(
+                                    annotated_frame, 
+                                    f"Person {person_id} had a fall", 
+                                    (30, 40),                   # Coordinates (X, Y)
+                                    cv2.FONT_HERSHEY_SIMPLEX,   # Font type
+                                    1,                          # Font scale
+                                    (0, 0, 255),                # Color (BGR format: RED)
+                                    2,                          # Line thickness
+                                    cv2.LINE_AA
+                                )
                         print(f"Person {person_id} had a fall =========================================")
+                        person.alerted = True 
                         return
-
             # Write the fps to the frame.    
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(
@@ -134,6 +170,16 @@ class FallDetector():
                     cv2.LINE_AA
                 )
             cv2.imshow('frame', display_frame)
+
+            if self.is_video_mode():
+                # waitKey(0) blocks indefinitely, which is what gives us pause
+                key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND qith 0xFF for bitwise AND only to preserve the lower 8 bits
+                if key == ord('q'):
+                    break
+                elif key == ord(' '):
+                    self.paused = not self.paused     # space toggles pause
+                elif key == ord('n'):
+                    self.paused = True           # advance exactly one frame, then pause
         # Release the capture objects 
         cam.release()
         cv2.destroyAllWindows()
@@ -145,6 +191,7 @@ class FallDetector():
         # kp[x] - gives (x,y) coordinates of keypoint with COCO index x 
         # conf[x] - confidence level of keypoint with COCO index x 
         if conf[i] < KP_CONF or conf[j] < KP_CONF:
+            print(f"confidence level is too low {conf[i]} and {conf[j]}")
             return None
         return ((kp[i][0] + kp[j][0]) / 2.0, (kp[i][1] + kp[j][1]) / 2.0)
 
@@ -217,16 +264,72 @@ class FallDetector():
             return "lying down"
         return "falling"
 
+    @abstractmethod
+    def get_fps(self):
+        pass
+
     # Check if a person is in the lying down position for a while 
     # The "falling" state can be a yellow event. If the person is lying for a prolonged amount of time raise the event to red
     # Work on the fps problem. Try to increase fps with even a lot of people. 
     # If fps problem is fixed, then use velocity to add more confidence to the falling state. 
             
+class VideoMode(FallDetector):
+    def __init__(self, filepath):
+        super().__init__()
+        self.cam = cv2.VideoCapture(filepath) #cv2.VideoCapture(0)
+        print(self.cam)
+        video_fps = self.cam.get(cv2.CAP_PROP_FPS)
+        if not video_fps or video_fps <= 0:
+            video_fps = 30.0   # some files report 0
+        self.fps = video_fps
 
+        self.frame_index = -1 
+        self.paused = False 
+
+    def get_cam(self):
+        return self.cam
+    
+    def get_fps(self):
+        return self.fps
+
+    def is_video_mode(self):
+        return True
+
+    def get_video_time(self):
+        return (self.frame_index/self.fps) # For video files
+
+class CameraMode(FallDetector):
+    def __init__(self):
+        super().__init__()
+        self.cam = cv2.VideoCapture(0) 
+        self.fps = 0 
+        self.prev_time = 0 
+        self.new_time = 0
+        self.time_delta = 0 
+
+    def get_cam(self):
+        return self.cam
+    
+    def calculate_fps(self):
+        self.new_time = time.perf_counter()
+        self.time_delta = self.new_time - self.prev_time
+        self.fps = (1/self.time_delta) if self.time_delta > 0 else 0 
+        self.prev_time = self.new_time
+
+    def get_fps(self):
+        self.calculate_fps()
+        return self.fps
+
+    def is_video_mode(self):
+        return False
 
 # This code only runs if you execute the file directly
-if __name__ == "__main__":
-    fall_detector = FallDetector()
-    fall_detector.run()
+if __name__ == "__main__": 
+    script_dir = Path(__file__).parent
+    video_footage_path = join(script_dir, "testing footage", "Fall test.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
+    if not os.path.isfile(video_footage_path):
+        raise Exception("Testing video footage file path is incorrect.")
+    video_fall_detector = VideoMode(video_footage_path)
+    video_fall_detector.run()
 
 
