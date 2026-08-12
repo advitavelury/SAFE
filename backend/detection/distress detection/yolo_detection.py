@@ -49,17 +49,18 @@ KP_CONF = 0.5                  # confidence required for a keypoint to be valid
 MIN_UPRIGHT_OBSERVATIONS = 5
 
 # --- Prolonged sitting ---------------------------------------------------
-# NOTE: 10 seconds is a TESTING value. Clinically the concern is immobility
-# over tens of minutes to hours - pressure injury risk, missed meals, someone
-# who cannot get themselves back up. A 10 second alert in a real ward would
-# fire on essentially every resident continuously. Raise this to something
-# like 1800 (30 min) before any real deployment or demo with clinical staff.
+# NOTE: this is a TESTING value. Clinically the concern is immobility over
+# tens of minutes to hours - pressure injury risk, missed meals, someone who
+# cannot get themselves back up. A few seconds in a real ward would fire on
+# essentially every resident continuously. Raise to something like 1800
+# (30 min) before any real deployment or demo with clinical staff.
 SITTING_HOLD_SECONDS = 3.0
 
 # Consecutive NON-sitting readings needed to break a sitting streak. Same
 # reasoning as MIN_UPRIGHT_OBSERVATIONS: without it, a single misclassified
-# frame at t=9.8s silently restarts a ten second timer and the alert never
-# fires. Unreadable frames do not count either way - they never reach here.
+# frame just before the threshold silently restarts the timer and the alert
+# never fires. Unreadable frames do not count either way - they never reach
+# here.
 SITTING_BREAK_OBSERVATIONS = 5
 
 # Lower floor for the sitting tests specifically. 0.5 is punishing on small,
@@ -130,6 +131,14 @@ COLOUR_RED = (0, 0, 255)
 COLOUR_AMBER = (0, 165, 255)
 COLOUR_BLUE = (255, 0, 0)
 COLOUR_GREEN = (0, 255, 0)
+
+# Box outline colours by alert state. Both alert states are red because both
+# are things a nurse needs to walk over and look at; swap the sitting one to
+# COLOUR_AMBER if you would rather grade them by severity in the demo.
+BOX_COLOUR_NORMAL = COLOUR_GREEN
+BOX_COLOUR_SITTING_ALERT = COLOUR_RED
+BOX_COLOUR_FALL_ALERT = COLOUR_RED
+BOX_THICKNESS = 2
 
 
 class Person():
@@ -242,6 +251,19 @@ class Person():
         if self.sitting_since is None:
             return 0.0
         return abs(now - self.sitting_since)
+
+    def box_colour(self):
+        """Outline colour for this person's detection box.
+
+        Reads the LATCHES, not the per-frame tests, so the box stays red
+        through dropped detections and unreadable keypoints for exactly the
+        same reason the banner does.
+        """
+        if self.alerted:
+            return BOX_COLOUR_FALL_ALERT
+        if self.sitting_alerted:
+            return BOX_COLOUR_SITTING_ALERT
+        return BOX_COLOUR_NORMAL
 
     def acknowledge(self):
         """Staff-facing hook: close both alerts manually."""
@@ -540,11 +562,16 @@ class FallDetector(ABC):
                 ids = results[0].boxes.id.cpu().numpy().astype(int).tolist()
                 all_kp = results[0].keypoints.xy.cpu()
                 all_conf = results[0].keypoints.conf.cpu()
+
+                # boxes=False / labels=False: ultralytics would draw its own
+                # class-coloured boxes, which we cannot recolour per alert
+                # state. We keep its skeleton rendering and draw the boxes and
+                # ID labels ourselves below.
                 annotated_frame = results[0].plot(
-                    boxes=True,      # draw bounding boxes
+                    boxes=False,
+                    labels=False,
                     kpt_line=True,   # draw skeleton lines between keypoints
                     kpt_radius=5,    # keypoint dot size
-                    labels=True,     # draw class + track ID labels
                 )
                 for i, person_id in enumerate(ids):
                     person = self.person_posture.get(person_id)
@@ -553,8 +580,10 @@ class FallDetector(ABC):
                         self.person_posture[person_id] = person
 
                     box = boxes[i]
-                    box_midpoint = (int(box[0] + abs(box[0] - box[2]) / 2),
-                                    int(box[1] + abs(box[1] - box[3]) / 2))
+                    x1, y1, x2, y2 = (int(box[0]), int(box[1]),
+                                      int(box[2]), int(box[3]))
+                    box_midpoint = (x1 + abs(x1 - x2) // 2,
+                                    y1 + abs(y1 - y2) // 2)
                     kp = all_kp[i]
                     confidence = all_conf[i]
 
@@ -572,16 +601,15 @@ class FallDetector(ABC):
                     else:
                         position = person.current_position   # hold, don't advance
 
-                    if position is not None:
-                        cv2.putText(annotated_frame, position, box_midpoint,
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                    COLOUR_BLUE, 2, cv2.LINE_AA)
+                    # --- Evaluate alerts BEFORE drawing --------------------
+                    # The box colour depends on alert state, so the latches
+                    # have to be up to date before anything is rendered.
 
-                    # --- Fall: latched -------------------------------------
-                    # alert_fall_event() asks "is a fall happening now"; the
-                    # `alerted` flag records that one already did. Drawing on
-                    # the latch means the banner survives dropped detections,
-                    # unreadable keypoints and momentary misclassification.
+                    # Fall: latched. alert_fall_event() asks "is a fall
+                    # happening now"; `alerted` records that one already did.
+                    # Drawing off the latch means the box and banner survive
+                    # dropped detections, unreadable keypoints and momentary
+                    # misclassification.
                     if person.alert_fall_event(video_time=video_time):
                         if not person.alerted:
                             print(f"Person {person_id} had a fall "
@@ -591,7 +619,7 @@ class FallDetector(ABC):
                         banners.append((f"Person {person_id} had a fall",
                                         COLOUR_RED))
 
-                    # --- Prolonged sitting: latched ------------------------
+                    # Prolonged sitting: latched, same reasoning.
                     if person.alert_prolonged_sitting(video_time=video_time):
                         if not person.sitting_alerted:
                             print(f"Person {person_id} seated over "
@@ -602,6 +630,20 @@ class FallDetector(ABC):
                         secs = person.seconds_seated(video_time=video_time)
                         banners.append((f"Person {person_id} seated {secs:.0f}s",
                                         COLOUR_RED))
+
+                    # --- Draw ---------------------------------------------
+                    outline = person.box_colour()
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2),
+                                  outline, BOX_THICKNESS)
+                    cv2.putText(annotated_frame, f"id:{person_id}",
+                                (x1, max(y1 - 6, 14)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                                outline, 2, cv2.LINE_AA)
+
+                    if position is not None:
+                        cv2.putText(annotated_frame, position, box_midpoint,
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    COLOUR_BLUE, 2, cv2.LINE_AA)
 
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(display_frame, f"FPS: {int(self.fps)}", (10, 40),
@@ -701,12 +743,9 @@ class CameraMode(FallDetector):
 
 if __name__ == "__main__":
     script_dir = Path(__file__).parent
-    video_footage_path = join(script_dir, "sitting testing footage", "Test_1.avi")
+    video_footage_path = join(script_dir, "sitting testing footage", "Test_3.avi")
     if not os.path.isfile(video_footage_path):
         raise Exception("Testing video footage file path is incorrect.")
     video_fall_detector = VideoMode(video_footage_path)
     video_fall_detector.DEBUG_POSTURE = True   # set False once tuned
     video_fall_detector.run()
-
-
-
