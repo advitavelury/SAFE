@@ -66,7 +66,7 @@ class Person():
 class FallDetector(ABC):
     def __init__(self):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
-        self.model = YOLO('yolo26n-pose.pt')
+        self.model = YOLO('yolo26s-pose.pt')
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
         self.bytetrack_yaml_path = os.path.join(dir, 'bytetrack.yaml')        
@@ -156,7 +156,7 @@ class FallDetector(ABC):
                                 )
                         print(f"Person {person_id} had a fall =========================================")
                         person.alerted = True 
-                        return
+                        #return
             # Write the fps to the frame.    
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(
@@ -325,11 +325,16 @@ class CameraMode(FallDetector):
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    script_dir = Path(__file__).parent
-    video_footage_path = join(script_dir, "testing footage", "Fall test.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
-    if not os.path.isfile(video_footage_path):
-        raise Exception("Testing video footage file path is incorrect.")
-    video_fall_detector = VideoMode(video_footage_path)
-    video_fall_detector.run()
+    video_mode = False 
+    if video_mode:
+        script_dir = Path(__file__).parent
+        video_footage_path = join(script_dir, "testing footage", "Fall test.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
+        if not os.path.isfile(video_footage_path):
+            raise Exception("Testing video footage file path is incorrect.")
+        video_fall_detector = VideoMode(video_footage_path)
+        video_fall_detector.run()
+    else:
+        live_fall_detector = CameraMode()
+        live_fall_detector.run()
 
 
