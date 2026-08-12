@@ -66,10 +66,13 @@ class Person():
 class FallDetector(ABC):
     def __init__(self):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
-        self.model = YOLO('yolo26n-pose.pt')
-        # Use the ONNX version if the run time is slow. 
+        # Shared model/config files live one level up, in backend/detection/,
+        # so fall detection and distress detection can both use them.
         dir = os.path.dirname(os.path.abspath(__file__))
-        self.bytetrack_yaml_path = os.path.join(dir, 'bytetrack.yaml')        
+        detection_dir = os.path.dirname(dir)
+        self.model = YOLO(os.path.join(detection_dir, 'yolo26n-pose.pt'))
+        # Use the ONNX version if the run time is slow.
+        self.bytetrack_yaml_path = os.path.join(detection_dir, 'bytetrack.yaml')
         
         self.person_posture = {}
 
