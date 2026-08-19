@@ -2,16 +2,19 @@ from abc import ABC, abstractmethod
 import cv2
 from ultralytics import YOLO
 import math
-import numpy as np
 import os
 import time
 from pathlib import Path
 from os.path import join 
-
+from collections import deque
+import statistics
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
 KP_CONF = 0.5 # confidence level required for a keypoint coordinates to be valid 
+MIN_SHOULDER_PX = 10.0      # Minimum shoulder width distance. Anything below this is where noise dominates. 
+MIN_FRONTALITY = 0.5        # Minimum ratio of shoulder_w/torso_len to verify if the person is standing facing the front
+MIN_TORSO_PX = 8            # Below this torso pixel length, using the torso for angles will be affected greatly by noise. 
 # COCO keypoint indices
 NOSE = 0
 L_SHOULDER, R_SHOULDER = 5, 6
@@ -28,7 +31,34 @@ class Person():
         self.down_since = None  # monotonic time DOWN first observed
         self.upright_since = None  # monotonic time upright first re-observed
         self.alerted = False  # if staff has been alerted
+        self.ratios_shoulder = deque(maxlen=30) # box_h/shoulder_w
+        self.ratios_box = deque(maxlen=30)  # box_h/box_w
 
+    def baseline(self, which):
+        q = self.ratios_shoulder if which == "shoulder" else self.ratios_box
+        return statistics.median(q) if len(q) >= 10 else None
+    
+    def check_update_baselines(self, shoulder_ratio = None, box_ratio = None):
+        if shoulder_ratio is None and box_ratio is None:
+            return 
+        if shoulder_ratio is not None:
+            base = self.baseline("shoulder")
+            if base is None:
+                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values 
+                if 2.0 < shoulder_ratio < 6.0:
+                    self.ratios_shoulder.append(shoulder_ratio)
+            elif 0.85 * base < shoulder_ratio < 1.2 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore. 
+                self.ratios_shoulder.append(shoulder_ratio)
+
+        if box_ratio is not None:
+            base = self.baseline("box")
+            if base is None:
+                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values 
+                if 2.0 < box_ratio < 6.0:
+                    self.ratios_box.append(box_ratio)
+            elif 0.8 * base < box_ratio <  1.20 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore. 
+                self.ratios_box.append(box_ratio)
+        
 
     def manage_person_posture(self, posture:str, video_time = None):
         now = time.monotonic() if video_time is None else video_time
@@ -37,18 +67,20 @@ class Person():
             return self.current_position
         if posture.lower() == "standing" or posture.lower() == "falling":
             if self.current_position == "lying down" and self.down_since is not None: # if the person has been identified as fallen down
-                # only reset the state to standing if they have been standing for more than the recover grace period
+                # only reset the state to standing if they have been standing for more than the recovery grace period time.
+                if self.upright_since is not None:
+                    print(f"the time since the person has stood up is {now-self.upright_since}")
                 if self.upright_since is not None and abs(now-self.upright_since)>= RECOVERY_GRACE_SECONDS:
                     self.current_position = posture
                     self.down_since = None
                 elif self.upright_since is None:
                     self.upright_since = now
-                return 
             else:
                 self.current_position = posture
         elif posture.lower() == "lying down":
             if self.current_position == "falling" and self.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
                 self.down_since = now # start the down since timer 
+            self.upright_since = None # reset the upright since flag to None since the person as possibly fallen. 
             self.current_position = posture
         return self.current_position
 
@@ -128,7 +160,7 @@ class FallDetector(ABC):
                     box_midpoint = (int(box[0] + abs(box[0]-box[2])/2), int(box[1] + abs(box[1]-box[3])/2))
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
-                    posture = self.classify_posture(kp = kp, conf=confidence, box = box, frame_h=frame_h)
+                    posture = self.classify_posture(kp = kp, conf=confidence, box = box, frame_h=frame_h, person=person)
                     if posture is None:  # this could happen when the frame could not pick up valid keypoints
                         continue 
                     position = person.manage_person_posture(posture, video_time= video_time)
@@ -193,8 +225,31 @@ class FallDetector(ABC):
         if conf[i] < KP_CONF or conf[j] < KP_CONF:
             print(f"confidence level is too low {conf[i]} and {conf[j]}")
             return None
-        return ((kp[i][0] + kp[j][0]) / 2.0, (kp[i][1] + kp[j][1]) / 2.0)
+        x_midpoint = float((kp[i][0] + kp[j][0]) / 2.0)
+        y_midpoint = float((kp[i][1] + kp[j][1]) / 2.0)
+        return (x_midpoint, y_midpoint)
 
+    def shoulder_width(self,kp, conf, i, j, torso_len):
+        """Midpoint of two keypoints, or None if either is unreliable."""
+        # i - the COCO index for first key point 
+        # j - the COCO index for the second key point 
+        # kp[x] - gives (x,y) coordinates of keypoint with COCO index x 
+        # conf[x] - confidence level of keypoint with COCO index x 
+        if conf[i] < KP_CONF or conf[j] < KP_CONF:
+            print(f"confidence level is too low {conf[i]} and {conf[j]}")
+            return None, None
+        dx = float(kp[i][0] - kp[j][0])
+        dy = float(kp[i][1] - kp[j][1])
+        width =  math.hypot(dx, dy)
+        if width < MIN_SHOULDER_PX:
+            return None, None
+        if torso_len < 1e-6:
+            return None, None
+        frontality_ratio = width/torso_len
+        if frontality_ratio >= MIN_FRONTALITY:
+            return width, frontality_ratio
+        return None,None 
+    
     def _angle_from_vertical(self, top, bottom):
         """0 deg = segment is vertical, 90 deg = segment is horizontal."""
         # top - keypoint usually located at the top in form (x,y)
@@ -203,8 +258,7 @@ class FallDetector(ABC):
         dx = abs(bottom[0] - top[0])
         return abs(90.0 - math.degrees(math.atan2(dy, dx)))
 
-
-    def classify_posture(self, kp, conf, box, frame_h,
+    def classify_posture(self, kp, conf, box, frame_h, person: Person,
                      standing_threshold=10, lying_threshold=60):
         # shoulder_centre and hip_centre are pixel coordinates but in the form (x, y). Pixel coordinates are normally (y,x) format. 
         shoulder_centre = self._midpoint(kp, conf, L_SHOULDER, R_SHOULDER)
@@ -217,18 +271,68 @@ class FallDetector(ABC):
         # changing much between postures.
         torso_len = math.hypot(hip_centre[0] - shoulder_centre[0],
                             hip_centre[1] - shoulder_centre[1])
-        if torso_len < 1.0:
-            return None  # degenerate - torso pointing straight at the camera
+        x1, y1, x2, y2 = box
 
-        torso_angle = self._angle_from_vertical(shoulder_centre, hip_centre)
-        if torso_angle < standing_threshold:
+        shoulder_width, frontality_ratio = self.shoulder_width(kp, conf, L_SHOULDER, R_SHOULDER, torso_len)
+        # frontality_ratio describes how oriented the person is in terms of facing forward. 
+        facing_forward = frontality_ratio is not None and frontality_ratio > 0.5
+        box_width = abs(x2-x1)
+        box_height = abs(y2-y1)
+        ratio_shoulder = abs(box_height/shoulder_width) if shoulder_width else None
+        ratio_box = abs(box_height/box_width)
+        
+        print(f"Shoulder width is {shoulder_width}, torso len is {torso_len}, frontality ratio is {frontality_ratio}")
+
+        if torso_len < MIN_TORSO_PX:
+            torso_angle =  None  # torso_angle will be too noisy if the torso length is very small.
+        else:
+            torso_angle = self._angle_from_vertical(shoulder_centre, hip_centre)
+        
+        print(f"The torso angle is {torso_angle}")
+        shoulder_baseline = None
+        if ratio_shoulder is not None:
+            shoulder_baseline = person.baseline("shoulder") # Get the median shoulder ratio
+        box_baseline = person.baseline("box") # Get the median box ratio 
+
+        box_current_vs_median = ratio_box/box_baseline if box_baseline else None
+        shoulder_current_vs_median = ratio_shoulder/shoulder_baseline if (ratio_shoulder is not None and shoulder_baseline is not None) else None
+        print(f"The current shoulder ratio is {ratio_shoulder} and median is {shoulder_baseline} and their ratio is {shoulder_current_vs_median}")
+        print(f"The current box ratio is {ratio_box} and median is {box_baseline} and their ratio is { box_current_vs_median}")
+
+        # CHECK IF THE PERSON IS STANDING 
+        standing_checks, standing_votes = 0, 0 
+
+        if torso_angle is not None :
+            standing_checks += 1
+            if torso_angle < standing_threshold:
+                print("standing vote 1")
+                standing_votes += 1
+        if box_current_vs_median is not None and facing_forward:
+            standing_checks += 1
+            if box_current_vs_median > 0.80:
+                print("standing vote 2")
+                standing_votes += 1
+        if shoulder_current_vs_median is not None and facing_forward:
+            standing_checks += 1
+            if shoulder_current_vs_median > 0.80:
+                # if both the ratio_shoulder and ratio_box is reducing compared to their respective median, the person must be in the motion of falling 
+                print("standing vote 3")
+                standing_votes += 1
+        if standing_checks > 0 and (standing_votes/standing_checks) > 0.5:
+            if facing_forward:
+                person.check_update_baselines(shoulder_ratio=ratio_shoulder, box_ratio=ratio_box)
             return "standing"
-        if torso_angle <= lying_threshold:
-            return "falling"
 
+        # CHECK IF THE PERSON IS FALLING 
+        #if torso_angle and standing_threshold <= torso_angle <= lying_threshold:
+        #    # The person is possibly falling if his torso is not upright. 
+        #    return "falling"
+
+
+        # CHECK IF THE PERSON IS LYING DOWN
         # Torso looks horizontal. Corroborate with independent evidence before
         # committing to "lying down", since that is what starts the alert timer.
-        votes, checks = 0, 0
+        lying_down_votes, lying_down_checks = 0, 0
 
         # 1. Legs horizontal too. Separates lying from bending over to pick
         #    something up, which also produces a horizontal torso.
@@ -236,33 +340,59 @@ class FallDetector(ABC):
         if lower is None:
             lower = self._midpoint(kp, conf, L_KNEE, R_KNEE)
         if lower is not None:
-            checks += 1
+            lying_down_checks += 1
             if self._angle_from_vertical(hip_centre, lower) > 50.0: # ideally the hips are in line with lower making the vertical angle 90
-                votes += 1
+                lying_down_votes += 1
 
         # 2. Silhouette is wider than it is tall. Comes from the detector rather
         #    than the pose model, so it fails independently of the keypoints.
-        x1, y1, x2, y2 = box
         box_w, box_h = max(x2 - x1, 1), max(y2 - y1, 1)
-        checks += 1
+        lying_down_checks += 1
         if box_w / box_h > 1.0:
-            votes += 1
+            lying_down_votes += 1
 
         # 3. Shoulders sit low above the person's own foot line, in units of their
         #    own torso. Standing is roughly 2.5-3.0 torso lengths, sitting roughly 1.5 torso lengths,
         #    lying below 1.3 torso lengths. Skipped when the box is clipped by the bottom of the frame,
         #    because then y2 is not the real foot line.
-        if y2 < frame_h - 5: # if y2 is too close to the bottom of the frame 
-            checks += 1
+        if y2 < frame_h - 5: # if y2 is not too close to the bottom of the frame 
+            lying_down_checks += 1
             if (y2 - shoulder_centre[1]) / torso_len < 1.3:
-                votes += 1
+                lying_down_votes += 1
 
+        # 4. The torso angle is above the lying threshold. This means the person is laying flat across the camera (towards west or east)
+        if torso_angle is not None:
+            lying_down_checks += 1
+            if torso_angle >= lying_threshold:
+                lying_down_votes += 1
+            
         # Need corroboration from at least two independent checks; if fewer than
         # two were evaluable, demand that every evaluable one agrees.
-        required = 2 if checks >= 2 else checks
-        if checks > 0 and votes >= required:
+        required = min(3, lying_down_checks)
+        print(f"required is {required} and votes is {lying_down_votes}")
+        if lying_down_checks > 0 and lying_down_votes >= required:
             return "lying down"
-        return "falling"
+        
+        # All the checks above will fail if the person is falling forwards/backwards. Check the ratio_box and ratio_shoulder compared to the median
+        compression_votes = 0 
+
+        if box_current_vs_median is not None and box_current_vs_median < 0.68:
+            print("compression vote 1")
+            compression_votes += 2
+        if shoulder_current_vs_median is not None and shoulder_current_vs_median < 0.80:
+            print("compression vote 2")
+            compression_votes += 1
+        #if frontality_ratio is not None and frontality_ratio >= 0.7:
+        #    print("compression vote 3")
+        #    compression_votes += 1
+        if hip_centre[1] - shoulder_centre[1] < 0:  # This is when the person is falling forwards (out of the camera).
+            print("compression vote 4")
+            compression_votes += 1
+        print(f"compression votes are {compression_votes}")
+        if compression_votes >= 2:
+            return "lying down"
+                
+        return "falling"  # Default to "falling" if none of the other states are verified.
 
     @abstractmethod
     def get_fps(self):
@@ -276,8 +406,7 @@ class FallDetector(ABC):
 class VideoMode(FallDetector):
     def __init__(self, filepath):
         super().__init__()
-        self.cam = cv2.VideoCapture(filepath) #cv2.VideoCapture(0)
-        print(self.cam)
+        self.cam = cv2.VideoCapture(filepath)
         video_fps = self.cam.get(cv2.CAP_PROP_FPS)
         if not video_fps or video_fps <= 0:
             video_fps = 30.0   # some files report 0
@@ -325,10 +454,10 @@ class CameraMode(FallDetector):
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    video_mode = False 
+    video_mode = True 
     if video_mode:
         script_dir = Path(__file__).parent
-        video_footage_path = join(script_dir, "testing footage", "Fall test.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
+        video_footage_path = join(script_dir, "testing footage", "Fall test 6.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
         if not os.path.isfile(video_footage_path):
             raise Exception("Testing video footage file path is incorrect.")
         video_fall_detector = VideoMode(video_footage_path)
