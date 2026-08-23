@@ -7,13 +7,19 @@ import time
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from pathlib import Path
+from os.path import join 
+
+
+PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
 
 class FallDetector():
     def __init__(self):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
-        self.cam = cv2.VideoCapture(0)
-        # Shared model/config files live one level up, in backend/detection/,
-        # so fall detection and distress detection can both use them.
+        script_dir = Path(__file__).parent
+        video_footage_path = join(script_dir, "testing footage", "Fall test.mp4")
+        self.cam = cv2.VideoCapture(video_footage_path)
+        self.model = YOLO('yolo26n.pt')
         dir = os.path.dirname(os.path.abspath(__file__))
         detection_dir = os.path.dirname(dir)
         self.model = YOLO(os.path.join(detection_dir, 'yolov8n.pt'))
@@ -37,7 +43,11 @@ class FallDetector():
             (29, 31), (30, 32), (27, 31), (28, 32),
         ]  # Tells us how to draw lines between different joints. E.g. (0,1) means draw a line between the landmark 
         # point 0 (nose) and landmark point 1 (left eye)
-        self.fps = 0 
+        #self.fps = 0 
+        video_fps = self.cam.get(cv2.CAP_PROP_FPS)
+        if not video_fps or video_fps <= 0:
+            video_fps = 30.0   # some files report 0
+        self.fps = video_fps
         self.person_posture = {}
     
     def run(self):
@@ -45,6 +55,7 @@ class FallDetector():
         model = self.model
         prev_time = 0 
         new_time = 0 
+        paused = False
         with vision.PoseLandmarker.create_from_options(self.options) as landmarker:
             while True:
                 ret, frame = cam.read()
@@ -53,10 +64,10 @@ class FallDetector():
                 if not ret or (cv2.waitKey(1) == ord('q')):
                     break
                 
-                new_time = time.perf_counter()
+                #new_time = time.perf_counter()
                 time_delta = new_time - prev_time
-                self.fps = 1/time_delta if time_delta > 0 else 0 
-                prev_time = new_time
+                #self.fps = 1/time_delta if time_delta > 0 else 0 
+                #prev_time = new_time
 
                 fps_text = f"FPS: {int(self.fps)}"
                 results = model.track(source=frame, 
@@ -96,6 +107,14 @@ class FallDetector():
                         cv2.LINE_AA
                     )
                 cv2.imshow('frame', frame)
+                # waitKey(0) blocks indefinitely, which is what gives us pause
+                key = cv2.waitKey(0 if paused else PLAYBACK_DELAY_MS) & 0xFF # we AND qith 0xFF for bitwise AND only to preserve the lower 8 bits
+                if key == ord('q'):
+                    break
+                elif key == ord(' '):
+                    paused = not paused     # space toggles pause
+                elif key == ord('n'):
+                    paused = True           # advance exactly one frame, then pause
         # Release the capture objects 
         cam.release()
         cv2.destroyAllWindows()
