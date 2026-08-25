@@ -56,7 +56,7 @@ class FallDetector():
     def check_detector(self, frame, person: Person, person_id, video_time=None):
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
-            return False 
+            return frame 
         position = self.manage_person_posture(posture, person=person, person_id=person_id, video_time= video_time)
         box_midpoint = person.box_midpoint()
         cv2.putText(
@@ -82,7 +82,7 @@ class FallDetector():
                 cv2.LINE_AA
             )
             print(f"Person {person_id} had a fall =========================================")
-            person.alerted = True
+            person.fall_alerted = True
         return frame
 
 

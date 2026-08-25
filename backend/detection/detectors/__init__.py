@@ -1,3 +1,3 @@
 from .fall import FallDetector
-
-__all__ = ["FallDetector"]
+from .wandering import WanderingDetector
+__all__ = ["FallDetector", "WanderingDetector"]
