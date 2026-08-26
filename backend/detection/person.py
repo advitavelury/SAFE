@@ -18,7 +18,6 @@ class WanderingDetectorMetrics():
 class FallDetectorMetrics():
     def __init__(self):
         # metrics used by FallDetector
-        self.current_position = None
         self.down_since = None  # monotonic time DOWN first observed.
         self.upright_since = None  # monotonic time upright first re-observed.
         self.fall_alerted = False  # if staff has been alerted about the person fall.

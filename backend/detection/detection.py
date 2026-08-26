@@ -150,6 +150,8 @@ class Program(ABC):
         # This function updates the keypoints for a person every frame.
         keypoints = person.keypoints
 
+        keypoints[NOSE] = kp[NOSE] if conf[NOSE] > KP_CONF else None
+
         keypoints[L_SHOULDER] = kp[L_SHOULDER] if conf[L_SHOULDER] > KP_CONF else None 
         keypoints[R_SHOULDER] = kp[R_SHOULDER] if conf[R_SHOULDER] > KP_CONF else None 
 
@@ -219,10 +221,11 @@ class CameraMode(Program):
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    video_mode = False 
+    video_mode = True 
     if video_mode:
         script_dir = Path(__file__).parent
-        video_footage_path = join(script_dir, "fall footage", "Fall test 2_1.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
+        #video_footage_path = join(script_dir, "..", "..", "..", "my test footage", "Falling backward 1.mp4")
+        video_footage_path = join(script_dir, "distress detection", "sitting testing footage", "Test_2.avi")  # Replace the last argument in the join method with a different file name to test a different video. 
         if not os.path.isfile(video_footage_path):
             raise Exception(f"Testing video footage file path {video_footage_path} is incorrect.")
         video_fall_detector = VideoMode(video_footage_path)
