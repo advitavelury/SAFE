@@ -33,7 +33,8 @@ class FallDetector():
         current_position = self.person_posture.get(person_id)
         if current_position is None: # if the current position is None, we are starting the tracking for the first time
             self.person_posture[person_id] = posture
-            return current_position
+            person.current_position = posture
+            return posture
         if posture.lower() == "standing" or posture.lower() == "falling":
             if current_position == "lying down" and person.down_since is not None: # if the person has been identified as fallen down
                 # only reset the state to standing if they have been standing for more than the recovery grace period time.
@@ -42,14 +43,17 @@ class FallDetector():
                 if person.upright_since is not None and abs(now-person.upright_since)>= RECOVERY_GRACE_SECONDS:
                     person.current_position = posture
                     person.down_since = None
+                    self.person_posture[person_id] = posture
                 elif person.upright_since is None:
                     person.upright_since = now
             else:
                 person.current_position = posture
+                self.person_posture[person_id] = posture
         elif posture.lower() == "lying down":
             if current_position == "falling" and person.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
                 person.down_since = now # start the down since timer 
             person.upright_since = None # reset the upright since flag to None since the person as possibly fallen. 
+            person.current_position = posture
             self.person_posture[person_id] = posture
         return self.person_posture[person_id]
 
@@ -221,5 +225,4 @@ class FallDetector():
         return "falling"  # Default to "falling" if none of the other states are verified.
 
             
-
 

@@ -144,6 +144,25 @@ When running video mode:
 - `n` advances one frame while paused.
 - `a` acknowledges open alerts in the distress-detection script.
 
+## Running Tests
+
+The unit tests focus on detector state logic instead of loading YOLO models, webcams, or video files. See [TESTING.md](TESTING.md) for the testing strategy, test plan, current test report, and manual test-log template.
+
+Run all tests from the project root:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Current test coverage includes:
+
+- Fall state transitions and alert timing.
+- Fall recovery grace period.
+- Prolonged sitting alert timing.
+- Prolonged sitting reset behaviour after repeated non-sitting observations.
+- Alert acknowledgement and bounding-box alert colour state.
+- Pacing test placeholder, currently skipped until pacing is implemented as a testable module.
+
 ## Detection Notes
 
 The fall detector uses posture and time-based logic:
