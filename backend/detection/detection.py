@@ -2,14 +2,15 @@
 import cv2
 from ultralytics import YOLO
 import time
+from datetime import timedelta
 from pathlib import Path
 from abc import ABC, abstractmethod
 import os
 from os.path import join 
 from person import Person
-from detectors import FallDetector, WanderingDetector
+from detectors import FallDetector, WanderingDetector, IsolationDetector
+from frame_context import FrameContext
 import math
-
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
 KP_CONF = 0.5 # confidence level required for a keypoint coordinates to be valid 
@@ -20,7 +21,6 @@ L_SHOULDER, R_SHOULDER = 5, 6
 L_HIP, R_HIP = 11, 12
 L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
-
 
 class Program(ABC):
     def __init__(self):
@@ -33,6 +33,7 @@ class Program(ABC):
         self.persons : dict[int, Person] = {}
         self.fall_detector = FallDetector()
         self.wandering_detector = WanderingDetector([("08:00", "20:00")])
+        self.isolation_detector = IsolationDetector(timedelta(hours=1))
 
     @abstractmethod
     def get_cam(self):
@@ -59,7 +60,7 @@ class Program(ABC):
             annotated_frame = None 
 
             self.fps = self.get_fps() 
-            video_time =  self.get_video_time() if self.is_video_mode() else None  
+            frame_time =  self.get_frame_time()  
 
             fps_text = f"FPS: {int(self.fps)}"
             results = model.track(source=frame, 
@@ -74,6 +75,7 @@ class Program(ABC):
                 boxes = results[0].boxes.xyxy.numpy().astype(int)
                 ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
                 all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+                people_in_frame = len(ids)
                 annotated_frame = results[0].plot(
                     boxes=True,      # draw bounding boxes
                     kpt_line=True,   # draw skeleton lines between keypoints
@@ -89,9 +91,16 @@ class Program(ABC):
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
                     self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
-                    fall_frame = self.fall_detector.check_detector(frame=annotated_frame.copy(), person = person, person_id = person_id, video_time = video_time)
-                    wandering_frame = self.wandering_detector.check_detector(frame=annotated_frame.copy(), person = person, person_id = person_id, video_time = video_time)
                     annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
+                    frame_context = FrameContext(
+                        frame=annotated_frame, 
+                        frame_time=frame_time, 
+                        occupancy=people_in_frame
+                    )
+                    fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                    wondering_frame = self.wandering_detector(ctx=frame_context, person = person)
+                    isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                    annotated_frame = isolation_frame # CHANGE this to another frame for testing other detectors
             # Write the fps to the frame.    
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(
@@ -168,6 +177,10 @@ class Program(ABC):
     def get_fps(self):
         pass
 
+    @abstractmethod
+    def get_frame_time(self):
+        pass
+
 class VideoMode(Program):
     def __init__(self, filepath):
         super().__init__()
@@ -189,7 +202,7 @@ class VideoMode(Program):
     def is_video_mode(self):
         return True
 
-    def get_video_time(self):
+    def get_frame_time(self):
         return (self.frame_index/self.fps) # For video files
 
 class CameraMode(Program):
@@ -214,6 +227,9 @@ class CameraMode(Program):
         self.calculate_fps()
         return self.fps
 
+    def get_frame_time(self):
+            return time.monotonic() # For video files
+    
     def is_video_mode(self):
         return False
 
