@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 import os
 from os.path import join 
 from person import Person
-from detectors import FallDetector, IsolationDetector
+from detectors import FallDetector, WanderingDetector, IsolationDetector
 from frame_context import FrameContext
 import math
 
@@ -27,11 +27,12 @@ class Program(ABC):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
-        self.model = YOLO(os.path.join(dir, 'yolo26n-pose.pt'))
+        self.model = YOLO(os.path.join(dir, 'yolo26s-pose.pt'))
         # Use the ONNX version if the run time is slow.
         self.bytetrack_yaml_path = os.path.join(dir, 'bytetrack.yaml')
         self.persons : dict[int, Person] = {}
         self.fall_detector = FallDetector()
+        self.wandering_detector = WanderingDetector([("08:00", "20:00")])
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
 
     @abstractmethod
@@ -90,12 +91,14 @@ class Program(ABC):
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
                     self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
+                    annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
                     frame_context = FrameContext(
                         frame=annotated_frame, 
                         frame_time=frame_time, 
                         occupancy=people_in_frame
                     )
                     fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                    wondering_frame = self.wandering_detector(ctx=frame_context, person = person)
                     isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
                     annotated_frame = isolation_frame # CHANGE this to another frame for testing other detectors
             # Write the fps to the frame.    
@@ -135,18 +138,18 @@ class Program(ABC):
 
         shoulder_centre = person._midpoint(L_SHOULDER, R_SHOULDER)
         hip_centre = person._midpoint(L_HIP, R_HIP)
-        # defining the torso length in the frame
         if shoulder_centre is not None and hip_centre is not None:
+            # defining the torso length in the frame
             person.torso_len = math.hypot(hip_centre[0] - shoulder_centre[0],
                             hip_centre[1] - shoulder_centre[1])
-        else: 
-            person.torso_len = None
 
-        # defining the torso angle in the frame 
-        if person.torso_len < MIN_TORSO_PX:
-            person.torso_angle =  None  # torso_angle will be too noisy if the torso length is very small.
-        else:
-            person.torso_angle = person._angle_from_vertical(shoulder_centre, hip_centre)
+            # defining the torso angle in the frame 
+            if person.torso_len < MIN_TORSO_PX:
+                person.torso_angle =  None  # torso_angle will be too noisy if the torso length is very small.
+            else:
+                person.torso_angle = person._angle_from_vertical(shoulder_centre, hip_centre)
+        else: 
+            person.torso_len = None                
 
         person.frame_h = frame_h
         person.frame_w = frame_w
@@ -232,7 +235,7 @@ class CameraMode(Program):
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    video_mode = True 
+    video_mode = False 
     if video_mode:
         script_dir = Path(__file__).parent
         video_footage_path = join(script_dir, "fall footage", "Fall test 2_1.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
