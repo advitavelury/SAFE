@@ -1,6 +1,7 @@
 from person import Person
 from datetime import datetime, time
 from dataclasses import dataclass
+from frame_context import FrameContext
 import cv2
 
 @dataclass(frozen=True)
@@ -33,28 +34,16 @@ class WanderingDetector():
     def is_normal_time(self, now: time) -> bool:
         return any(w.contains(now) for w in self.normal_hours)        
 
-    def check_detector(self, frame, person: Person, person_id, video_time=None):
+    def check_detector(self, ctx: FrameContext, person: Person):
         box_midpoint = person.box_midpoint()
-        if video_time is not None:
-            res = False
-            cv2.putText(
-                        frame, 
-                        f"Person {person_id} is not wandering.", 
-                        box_midpoint, # Coordinates (X, Y)
-                        cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                        1,                          # Font scale
-                        (255, 0, 0),                # Color (BGR format: Blue)
-                        2,                          # Line thickness
-                        cv2.LINE_AA
-                    )
-            return frame
+        frame = ctx.frame
         now = datetime.now().time()
         res = self.is_normal_time(now = now)
         if not res:
             person.wandering_alerted = True
             cv2.putText(
                         frame, 
-                        f"Person {person_id} wandering detected.", 
+                        f"Person {person.id} wandering detected.", 
                         box_midpoint, # Coordinates (X, Y)
                         cv2.FONT_HERSHEY_SIMPLEX,   # Font type
                         1,                          # Font scale

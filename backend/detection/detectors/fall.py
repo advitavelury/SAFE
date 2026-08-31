@@ -87,7 +87,7 @@ class FallDetector():
                 2,                          # Line thickness
                 cv2.LINE_AA
             )
-            print(f"Person {person_id} had a fall =========================================")
+            print(f"Person {person.id} had a fall =========================================")
             person.fall_alerted = True
         return frame
 

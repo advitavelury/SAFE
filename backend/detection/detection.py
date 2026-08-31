@@ -91,16 +91,15 @@ class Program(ABC):
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
                     self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
-                    annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
                     frame_context = FrameContext(
                         frame=annotated_frame, 
                         frame_time=frame_time, 
                         occupancy=people_in_frame
                     )
                     fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                    wondering_frame = self.wandering_detector(ctx=frame_context, person = person)
+                    wandering_frame = self.wandering_detector.check_detector(ctx=frame_context, person = person)
                     isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                    annotated_frame = isolation_frame # CHANGE this to another frame for testing other detectors
+                    annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
             # Write the fps to the frame.    
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(
