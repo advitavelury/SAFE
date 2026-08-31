@@ -10,6 +10,11 @@ L_HIP, R_HIP = 11, 12
 L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
+class IsolationDetectorMetrics():
+    def __init__(self):
+        self.isolation_alerted = False # if staff has been alerted about the person being in isolation for too long.  
+        super().__init__()
+
 class FallDetectorMetrics():
     def __init__(self):
         # metrics used by FallDetector
@@ -70,7 +75,7 @@ class FallDetectorMetrics():
             elif 0.8 * base < box_ratio <  1.20 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore. 
                 self.ratios_box.append(box_ratio)
 
-class Person(FallDetectorMetrics):
+class Person(FallDetectorMetrics, IsolationDetectorMetrics):
     def __init__(self, id):
         self.id = id 
         self.keypoints = {} # stores keypoints where the key is the COCO index and value is the tensor object.

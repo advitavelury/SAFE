@@ -1,5 +1,5 @@
 from person import Person
-import time
+from frame_context import FrameContext
 import cv2
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
@@ -16,20 +16,20 @@ class FallDetector():
     def __init__(self):
         self.person_posture : dict[int, str] = {}
 
-    def alert_fall_event(self, person_id, person, video_time = None) -> bool: 
+    def alert_fall_event(self, person: Person, frame_time) -> bool: 
         # if a person has been "lying down" for more than 5 seconds, then alert a fall event
         # works under the assumptiont that the application is running at a minimum of 10 fps 
-        now = time.monotonic() if video_time is None else video_time
+        person_id = person.id
         current_position = self.person_posture.get(person_id)
         if current_position is None:
             return False 
         elif current_position.lower() == "lying down":
-            if person.down_since is not None and abs(now - person.down_since) >= DOWN_HOLD_SECONDS:
+            if person.down_since is not None and abs(frame_time - person.down_since) >= DOWN_HOLD_SECONDS:
                 return True 
         return False
     
-    def manage_person_posture(self, posture:str, person:Person, person_id, video_time = None):
-        now = time.monotonic() if video_time is None else video_time
+    def manage_person_posture(self, posture:str, person:Person, frame_time = None):
+        person_id = person.id
         current_position = self.person_posture.get(person_id)
         if current_position is None: # if the current position is None, we are starting the tracking for the first time
             self.person_posture[person_id] = posture
@@ -39,29 +39,31 @@ class FallDetector():
             if current_position == "lying down" and person.down_since is not None: # if the person has been identified as fallen down
                 # only reset the state to standing if they have been standing for more than the recovery grace period time.
                 if person.upright_since is not None:
-                    print(f"the time since the person has stood up is {now-person.upright_since}")
-                if person.upright_since is not None and abs(now-person.upright_since)>= RECOVERY_GRACE_SECONDS:
+                    print(f"the time since the person has stood up is {frame_time-person.upright_since}")
+                if person.upright_since is not None and abs(frame_time-person.upright_since)>= RECOVERY_GRACE_SECONDS:
                     person.current_position = posture
                     person.down_since = None
                     self.person_posture[person_id] = posture
                 elif person.upright_since is None:
-                    person.upright_since = now
+                    person.upright_since = frame_time
             else:
                 person.current_position = posture
                 self.person_posture[person_id] = posture
         elif posture.lower() == "lying down":
             if current_position == "falling" and person.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
-                person.down_since = now # start the down since timer 
+                person.down_since = frame_time # start the down since timer 
             person.upright_since = None # reset the upright since flag to None since the person as possibly fallen. 
             person.current_position = posture
             self.person_posture[person_id] = posture
         return self.person_posture[person_id]
 
-    def check_detector(self, frame, person: Person, person_id, video_time=None):
+    def check_detector(self, ctx: FrameContext, person: Person):
+        frame = ctx.frame
+        frame_time = ctx.frame_time
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
             return False 
-        position = self.manage_person_posture(posture, person=person, person_id=person_id, video_time= video_time)
+        position = self.manage_person_posture(posture, person=person, frame_time=frame_time)
         box_midpoint = person.box_midpoint()
         cv2.putText(
             frame, 
@@ -73,11 +75,11 @@ class FallDetector():
             2,                          # Line thickness
             cv2.LINE_AA
         )
-        alert = self.alert_fall_event(person_id=person_id, person=person, video_time=video_time)
+        alert = self.alert_fall_event(person=person, frame_time=frame_time)
         if alert:
             cv2.putText(
                 frame, 
-                f"Person {person_id} had a fall", 
+                f"Person {person.id} had a fall", 
                 (30, 40),                   # Coordinates (X, Y)
                 cv2.FONT_HERSHEY_SIMPLEX,   # Font type
                 1,                          # Font scale
@@ -85,7 +87,7 @@ class FallDetector():
                 2,                          # Line thickness
                 cv2.LINE_AA
             )
-            print(f"Person {person_id} had a fall =========================================")
+            print(f"Person {person.id} had a fall =========================================")
             person.alerted = True
         return frame
 
