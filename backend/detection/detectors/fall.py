@@ -33,14 +33,13 @@ class FallDetector():
         current_position = self.person_posture.get(person_id)
         if current_position is None: # if the current position is None, we are starting the tracking for the first time
             self.person_posture[person_id] = posture
-            return current_position
+            return posture
         if posture.lower() in ("standing", "falling", "sitting"):
             if current_position == "lying down" and person.down_since is not None: # if the person has been identified as fallen down
                 # only reset the state to standing if they have been standing for more than the recovery grace period time.
                 if person.upright_since is not None:
                     print(f"the time since the person has stood up is {frame_time-person.upright_since}")
                 if person.upright_since is not None and abs(frame_time-person.upright_since)>= RECOVERY_GRACE_SECONDS:
-                    person.current_position = posture
                     person.down_since = None
                     self.person_posture[person_id] = posture
                 elif person.upright_since is None:
@@ -50,10 +49,7 @@ class FallDetector():
         elif posture.lower() == "lying down":
             if current_position in ("falling", "sitting") and person.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
                 person.down_since = frame_time # start the down since timer 
-            if current_position == "falling" and person.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
-                person.down_since = frame_time # start the down since timer 
             person.upright_since = None # reset the upright since flag to None since the person as possibly fallen. 
-            person.current_position = posture
             self.person_posture[person_id] = posture
 
         return self.person_posture[person_id]
@@ -124,7 +120,7 @@ class FallDetector():
         
         print(f"Shoulder width is {shoulder_width}, torso len is {torso_len}, frontality ratio is {frontality_ratio}")
 
-        torso_angle = person._angle_from_vertical(shoulder_centre, hip_centre)
+        torso_angle = person.torso_angle
         
         print(f"The torso angle is {torso_angle}")
         shoulder_baseline = None
@@ -141,6 +137,10 @@ class FallDetector():
         if frontality_ratio is not None and frontality_ratio >= 0.60:
             sitting_checks = 0
             sitting_votes = 0
+            hip_knee_height_ratio = None 
+            femur_tibia_ratio = None
+            hip_ankle_height_ratio = None
+
             if left_knee is not None and right_knee is not None:
                 sitting_checks += 1 
                 hip_knee_height = max(left_knee[1], right_knee[1]) - hip_centre[1]
@@ -151,8 +151,8 @@ class FallDetector():
 
                 left_ankle = person.keypoints[L_ANKLE]
                 right_ankle = person.keypoints[R_ANKLE]
-                femur_tibia_ratio = None
-                hip_ankle_height_ratio = None
+                
+                
                 if left_ankle is not None and right_ankle is not None:              
                     hip_ankle_height = max(left_ankle[1], right_ankle[1]) - hip_centre[1]
                     hip_ankle_height_ratio = hip_ankle_height/person_height
@@ -163,6 +163,7 @@ class FallDetector():
                     if femur_tibia_ratio < 0.49 and hip_ankle_height_ratio < 0.55:
                         sitting_votes += 1 
 
+            hip_knee_height_ratio = 0.0 if hip_knee_height_ratio is None else hip_knee_height_ratio
             hip_ankle_height_ratio = 0.0 if hip_ankle_height_ratio is None else hip_ankle_height_ratio
             femur_tibia_ratio = 0.0 if femur_tibia_ratio is None else femur_tibia_ratio
             print(f"hip knee height ratio is {hip_knee_height_ratio:.4f}. hip ankle height ratio is {hip_ankle_height_ratio:.4f}. femur tibia ratio is {femur_tibia_ratio:.4f}")

@@ -1,4 +1,3 @@
-import time
 from collections import deque
 import statistics
 import math
@@ -37,6 +36,8 @@ class FallDetectorMetrics():
     def get_shoulder_width(self):
         MIN_SHOULDER_PX = 10.0      # Minimum shoulder width distance. Anything below this is where noise dominates. 
         kp = self.keypoints
+        if kp[L_SHOULDER] is None or kp[R_SHOULDER] is None:
+            return None
         dx = float(kp[L_SHOULDER][0] - kp[R_SHOULDER][0])
         dy = float(kp[L_SHOULDER][1] - kp[R_SHOULDER][1])
         width =  math.hypot(dx, dy)
@@ -48,7 +49,7 @@ class FallDetectorMetrics():
         MIN_FRONTALITY = 0.5        # Minimum ratio of shoulder_w/torso_len to verify if the person is standing facing the front
         shoulder_width = self.get_shoulder_width()
         torso_len = self.torso_len
-        if torso_len < 1e-6 or shoulder_width is None:
+        if torso_len is not None or torso_len < 1e-6 or shoulder_width is None:
             return None
         frontality_ratio = shoulder_width/torso_len
         if frontality_ratio >= MIN_FRONTALITY:

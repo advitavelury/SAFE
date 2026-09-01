@@ -82,6 +82,11 @@ class Program(ABC):
                     kpt_radius=5,    # keypoint dot size
                     labels=True,     # draw class + track ID labels
                 )
+                frame_context = FrameContext(
+                                        frame=annotated_frame, 
+                                        frame_time=frame_time, 
+                                        occupancy=people_in_frame
+                                    )
                 for i, person_id in enumerate(ids):
                     person = self.persons.get(person_id)  # obtain the person object
                     if person is None:
@@ -91,13 +96,11 @@ class Program(ABC):
                     kp = all_kp[i]  # keypoints of a person
                     confidence = results[0].keypoints.conf[i]
                     self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
-                    frame_context = FrameContext(
-                        frame=annotated_frame, 
-                        frame_time=frame_time, 
-                        occupancy=people_in_frame
-                    )
+                    frame_context.frame = annotated_frame.copy()
                     fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                    frame_context.frame = annotated_frame.copy()
                     wandering_frame = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                    frame_context.frame = annotated_frame.copy()
                     isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
                     annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
             # Write the fps to the frame.    
@@ -148,7 +151,8 @@ class Program(ABC):
             else:
                 person.torso_angle = person._angle_from_vertical(shoulder_centre, hip_centre)
         else: 
-            person.torso_len = None                
+            person.torso_len = None      
+            person.torso_angle = None          
 
         person.frame_h = frame_h
         person.frame_w = frame_w
