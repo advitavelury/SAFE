@@ -49,7 +49,7 @@ class FallDetectorMetrics():
         MIN_FRONTALITY = 0.5        # Minimum ratio of shoulder_w/torso_len to verify if the person is standing facing the front
         shoulder_width = self.get_shoulder_width()
         torso_len = self.torso_len
-        if torso_len is not None or torso_len < 1e-6 or shoulder_width is None:
+        if torso_len is None or torso_len < 1e-6 or shoulder_width is None:
             return None
         frontality_ratio = shoulder_width/torso_len
         if frontality_ratio >= MIN_FRONTALITY:
