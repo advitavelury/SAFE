@@ -2,7 +2,15 @@ from person import Person
 from datetime import datetime, time
 from dataclasses import dataclass
 from frame_context import FrameContext
-import cv2
+from overlay import draw_label
+
+# Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
+# below the box midpoint so it doesn't overlap the other detectors' labels -
+# see fall.py, isolation.py, sitting.py for their own offsets.
+LABEL_FONT_SCALE = 0.5
+LABEL_THICKNESS = 1
+LABEL_Y_OFFSET = 20
+LABEL_COLOR = (0, 140, 255)   # BGR: orange
 
 @dataclass(frozen=True)
 class TimeWindow:
@@ -41,16 +49,9 @@ class WanderingDetector():
         res = self.is_normal_time(now = now)
         if not res:
             person.wandering_alerted = True
-            cv2.putText(
-                        frame, 
-                        f"Person {person.id} wandering detected.", 
-                        box_midpoint, # Coordinates (X, Y)
-                        cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                        1,                          # Font scale
-                        (255, 0, 0),                # Color (BGR format: Blue)
-                        2,                          # Line thickness
-                        cv2.LINE_AA
-                    )
+            label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
+            draw_label(frame, f"Person {person.id} wandering detected.", label_point,
+                       LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
         return frame 
 
             

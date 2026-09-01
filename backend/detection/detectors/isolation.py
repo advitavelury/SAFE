@@ -1,9 +1,17 @@
-import cv2 
 from person import Person
 from frame_context import FrameContext
+from overlay import draw_label
 from datetime import timedelta
 
-CONSECUTIVE_FRAMES_THRESHOLD = 10 # The number of frames required with occupancy more than 1 to reset the isolation timer of a person. 
+CONSECUTIVE_FRAMES_THRESHOLD = 10 # The number of frames required with occupancy more than 1 to reset the isolation timer of a person.
+
+# Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
+# below the box midpoint so it doesn't overlap the other detectors' labels -
+# see fall.py, wandering.py, sitting.py for their own offsets.
+LABEL_FONT_SCALE = 0.5
+LABEL_THICKNESS = 1
+LABEL_Y_OFFSET = 40
+LABEL_COLOR = (204, 0, 204)   # BGR: magenta/purple
 class IsolationDetector():
     def __init__(self, threshold_time: timedelta):
         self.threshold_seconds = threshold_time.total_seconds()
@@ -36,15 +44,8 @@ class IsolationDetector():
             self.person_alone_since[person.id] = alone_since
         time_alone = frame_time - alone_since
         if time_alone > self.threshold_seconds:
-            person.isolation_alerted = True 
-        cv2.putText(
-                    frame, 
-                    f"Isolation time {time_alone:.1f}s.", 
-                    box_midpoint, # Coordinates (X, Y)
-                    cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                    1,                          # Font scale
-                    (255, 0, 0),                # Color (BGR format: Blue)
-                    2,                          # Line thickness
-                    cv2.LINE_AA
-                )
+            person.isolation_alerted = True
+        label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
+        draw_label(frame, f"Isolation time {time_alone:.1f}s.", label_point,
+                   LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
         return frame

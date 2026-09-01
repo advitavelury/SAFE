@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 import os
 from os.path import join 
 from person import Person
-from detectors import FallDetector, WanderingDetector, IsolationDetector
+from detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from frame_context import FrameContext
 import math
 
@@ -34,6 +34,7 @@ class Program(ABC):
         self.fall_detector = FallDetector()
         self.wandering_detector = WanderingDetector([("08:00", "20:00")])
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
+        self.sitting_detector = SittingDetector(timedelta(hours=2))
 
     @abstractmethod
     def get_cam(self):
@@ -99,7 +100,8 @@ class Program(ABC):
                     fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
                     wandering_frame = self.wandering_detector.check_detector(ctx=frame_context, person = person)
                     isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                    annotated_frame = fall_frame # CHANGE this to another frame for testing other detectors
+                    sitting_frame = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+                    annotated_frame = sitting_frame # CHANGE this to another frame for testing other detectors
             # Write the fps to the frame.    
             display_frame = frame if annotated_frame is None else annotated_frame
             cv2.putText(
@@ -234,10 +236,10 @@ class CameraMode(Program):
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    video_mode = False 
+    video_mode = True
     if video_mode:
         script_dir = Path(__file__).parent
-        video_footage_path = join(script_dir, "fall footage", "Fall test 2_1.mp4")  # Replace the last argument in the join method with a different file name to test a different video. 
+        video_footage_path = join(script_dir, "distress detection", "sitting testing footage", "Test_4.avi")  # Replace the last argument in the join method with a different file name to test a different video.
         if not os.path.isfile(video_footage_path):
             raise Exception(f"Testing video footage file path {video_footage_path} is incorrect.")
         video_fall_detector = VideoMode(video_footage_path)

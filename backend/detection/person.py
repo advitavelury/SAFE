@@ -12,12 +12,24 @@ L_ANKLE, R_ANKLE = 15, 16
 
 class WanderingDetectorMetrics():
     def __init__(self):
-        self.wandering_alerted = False # if staff has been alerted about the person wandering. 
-        super().__init__() 
-        
+        self.wandering_alerted = False # if staff has been alerted about the person wandering.
+        super().__init__()
+
 class IsolationDetectorMetrics():
     def __init__(self):
-        self.isolation_alerted = False # if staff has been alerted about the person being in isolation for too long.  
+        self.isolation_alerted = False # if staff has been alerted about the person being in isolation for too long.
+        super().__init__()
+
+class SittingDetectorMetrics():
+    def __init__(self):
+        # metrics used by SittingDetector
+        self.sitting_position = None       # last verdict: "sitting" / "not sitting". Separate
+                                            # from FallDetectorMetrics.current_position, which
+                                            # tracks a different state machine (standing/falling/
+                                            # lying down) for a different detector.
+        self.sitting_since = None          # frame_time the current sitting streak began
+        self.non_sitting_since = None      # frame_time the current run of non-sitting reads began, to break the streak
+        self.sitting_alerted = False       # if staff has been alerted about prolonged sitting
         super().__init__()
 
 class FallDetectorMetrics():
@@ -30,13 +42,13 @@ class FallDetectorMetrics():
         self.ratios_shoulder = deque(maxlen=30) # box_h/shoulder_w.
         self.ratios_box = deque(maxlen=30)  # box_h/box_w.
         self.torso_len = None # The length of the persons torso in the frame.
-        self.torso_angle = None # The angle of the persons torso in the frame. 
-        self.frame_h = None     # The height of the frame. 
-        self.frame_w = None     # The width of the frame. 
-        super().__init__() 
-        
+        self.torso_angle = None # The angle of the persons torso in the frame.
+        self.frame_h = None     # The height of the frame.
+        self.frame_w = None     # The width of the frame.
+        super().__init__()
+
     def get_shoulder_width(self):
-        MIN_SHOULDER_PX = 10.0      # Minimum shoulder width distance. Anything below this is where noise dominates. 
+        MIN_SHOULDER_PX = 10.0      # Minimum shoulder width distance. Anything below this is where noise dominates.
         kp = self.keypoints
         dx = float(kp[L_SHOULDER][0] - kp[R_SHOULDER][0])
         dy = float(kp[L_SHOULDER][1] - kp[R_SHOULDER][1])
@@ -45,7 +57,7 @@ class FallDetectorMetrics():
             return None
         return width
 
-    def get_frontality_ratio(self):        
+    def get_frontality_ratio(self):
         MIN_FRONTALITY = 0.5        # Minimum ratio of shoulder_w/torso_len to verify if the person is standing facing the front
         shoulder_width = self.get_shoulder_width()
         torso_len = self.torso_len
@@ -54,7 +66,7 @@ class FallDetectorMetrics():
         frontality_ratio = shoulder_width/torso_len
         if frontality_ratio >= MIN_FRONTALITY:
             return frontality_ratio
-        return None 
+        return None
 
     def baseline(self, which):
         q = self.ratios_shoulder if which == "shoulder" else self.ratios_box
@@ -62,31 +74,31 @@ class FallDetectorMetrics():
 
     def check_update_baselines(self, shoulder_ratio = None, box_ratio = None):
         if shoulder_ratio is None and box_ratio is None:
-            return 
+            return
         if shoulder_ratio is not None:
             base = self.baseline("shoulder")
             if base is None:
-                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values 
+                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values
                 if 2.0 < shoulder_ratio < 6.0:
                     self.ratios_shoulder.append(shoulder_ratio)
-            elif 0.85 * base < shoulder_ratio < 1.2 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore. 
+            elif 0.85 * base < shoulder_ratio < 1.2 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore.
                 self.ratios_shoulder.append(shoulder_ratio)
 
         if box_ratio is not None:
             base = self.baseline("box")
             if base is None:
-                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values 
+                # This means we haven't accumulated 10 values yet in the queue. Accept plausible values
                 if 2.0 < box_ratio < 6.0:
                     self.ratios_box.append(box_ratio)
-            elif 0.8 * base < box_ratio <  1.20 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore. 
+            elif 0.8 * base < box_ratio <  1.20 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore.
                 self.ratios_box.append(box_ratio)
 
-class Person(FallDetectorMetrics, WanderingDetectorMetrics, IsolationDetectorMetrics):
+class Person(FallDetectorMetrics, WanderingDetectorMetrics, IsolationDetectorMetrics, SittingDetectorMetrics):
     def __init__(self, id):
-        self.id = id 
+        self.id = id
         self.keypoints = {} # stores keypoints where the key is the COCO index and value is the tensor object.
-        self.box_coords = None # Box coordinates are in the form (x1, y1, x2, y2). Defines the top left and bottom right corner of the box surrounding the person. 
-        super().__init__() 
+        self.box_coords = None # Box coordinates are in the form (x1, y1, x2, y2). Defines the top left and bottom right corner of the box surrounding the person.
+        super().__init__()
 
     def box_midpoint(self):
         box_midpoint = None
@@ -94,13 +106,13 @@ class Person(FallDetectorMetrics, WanderingDetectorMetrics, IsolationDetectorMet
             x1, y1, x2, y2 = self.box_coords
             box_midpoint = (int(x1 + abs(x1-x2)/2), int(y1 + abs(y1-y2)/2))
         return box_midpoint
-    
+
     def _midpoint(self, i, j):
         """Midpoint of two keypoints, or None if either is unreliable."""
-        # i - the COCO index for first key point 
-        # j - the COCO index for the second key point 
-        # kp[x] - gives (x,y) coordinates of keypoint with COCO index x 
-        # conf[x] - confidence level of keypoint with COCO index x 
+        # i - the COCO index for first key point
+        # j - the COCO index for the second key point
+        # kp[x] - gives (x,y) coordinates of keypoint with COCO index x
+        # conf[x] - confidence level of keypoint with COCO index x
         kp = self.keypoints
         if kp[i] is None or kp[j] is None:
             print("One of the keypoints is not reliable to find the midpoint.")
@@ -109,10 +121,39 @@ class Person(FallDetectorMetrics, WanderingDetectorMetrics, IsolationDetectorMet
         y_midpoint = float((kp[i][1] + kp[j][1]) / 2.0)
         return (x_midpoint, y_midpoint)
 
+    def _point(self, i):
+        """Keypoint i as a plain (x, y) float tuple, or None if it was not
+        confidently detected this frame. Same reliability check as
+        _midpoint, just for a single joint rather than a pair - used by
+        SittingDetector's per-leg tests, which need the hip/knee/ankle
+        individually rather than averaged."""
+        kp = self.keypoints
+        if kp[i] is None:
+            return None
+        return (float(kp[i][0]), float(kp[i][1]))
+
     def _angle_from_vertical(self, top, bottom):
         """0 deg = segment is vertical, 90 deg = segment is horizontal."""
         # top - keypoint usually located at the top in form (x,y)
         # bottom - keypoint usually located at the bottom in form (x,y)
         dy = abs(bottom[1] - top[1])
         dx = abs(bottom[0] - top[0])
-        return abs(90.0 - math.degrees(math.atan2(dy, dx)))      
+        return abs(90.0 - math.degrees(math.atan2(dy, dx)))
+
+    def _joint_angle(self, a, b, c):
+        """Interior angle at joint b, between segments b->a and b->c, in
+        degrees. 180 = limb fully extended, 90 = right angle, 0 = folded
+        shut. Unlike _angle_from_vertical this measures the angle BETWEEN
+        two segments, so it does not change when the person is rotated in
+        the image plane - it does still change with camera azimuth, which
+        is why SittingDetector only ever uses it as corroboration, never as
+        the primary test."""
+        v1 = (a[0] - b[0], a[1] - b[1])
+        v2 = (c[0] - b[0], c[1] - b[1])
+        n1 = math.hypot(v1[0], v1[1])
+        n2 = math.hypot(v2[0], v2[1])
+        if n1 < 1e-6 or n2 < 1e-6:
+            return None
+        cosine = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+        cosine = max(-1.0, min(1.0, cosine))   # clamp before acos
+        return math.degrees(math.acos(cosine))
