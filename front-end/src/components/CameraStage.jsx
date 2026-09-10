@@ -126,7 +126,7 @@ export default function CameraStage({ zoneId, toggles, live = true, scale = 1, c
       {live && scale === 1 && (
         <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/45 px-2 py-1">
           <Dot color={C.fall} pulse />
-          <span className="text-[11px] font-bold tracking-wide text-white">LIVE</span>
+          <span className="text-[11px] font-bold tracking-wide text-white">DEMO</span>
         </div>
       )}
     </div>

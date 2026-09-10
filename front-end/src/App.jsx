@@ -1,274 +1,40 @@
-import { useMemo, useState } from "react";
-import {
-  AlertTriangle, ChevronDown, MessageSquare, Volume2,
-  Layers, ScanFace, PersonStanding,
-} from "lucide-react";
-
-import { C, FONT } from "./theme.js";
-import { ZONES } from "./data/zones.js";
-import { useIncidentFeed } from "./api/feeds.js";
-import { useClock } from "./hooks/index.js";
-import { iso } from "./utils/date.js";
-import { Panel, SectionTitle, Dot, Toggle, Select } from "./components/ui.jsx";
-import Calendar from "./components/Calendar.jsx";
-import AlertCard from "./components/AlertCard.jsx";
-import CameraStage from "./components/CameraStage.jsx";
-
+import { useState } from 'react';
+import { Activity, Monitor, ClipboardList, Settings, ShieldCheck, ArrowUpRight, Check, Search, Camera, Bell, SlidersHorizontal } from 'lucide-react';
+import CameraStage from './components/CameraStage.jsx';
+import { useAdminEvents } from './api/admin.js';
+import { EVENT_TYPES, STATUSES, SEVERITIES } from './data/events.js';
+import './admin.css';
+const formatTime = value => new Date(value).toLocaleString('en-AU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const localDay = value => { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+function Badge({ event }) { return <span className={`badge ${event.status}`}>{STATUSES[event.status]}</span>; }
+function SeverityBadge({ event }) { return <span className={`badge severity-${event.severity}`}>{SEVERITIES[event.severity]}</span>; }
+const defaults = { sittingMinutes: 120, isolationMinutes: 60, skeleton: false, visualAlerts: true };
+function loadSettings() { try { return { ...defaults, ...JSON.parse(localStorage.getItem('safe-admin-settings-v1')) }; } catch { return defaults; } }
 export default function App() {
-  const incidents = useIncidentFeed();
-  const now = useClock();
-
-  const [view, setView] = useState("monitor");
-  const [zoneId, setZoneId] = useState("A");
-  const [selectedDay, setSelectedDay] = useState(() => iso(new Date()));
-  const [month, setMonth] = useState(() => new Date().getMonth());
-  const [year, setYear] = useState(() => new Date().getFullYear());
-  const [showOlder, setShowOlder] = useState(false);
-  const [toggles, setToggles] = useState({
-    skeleton: false, multiZone: false, faceBlur: false, sms: true, audio: true,
-  });
-
-  const setToggle = (k) => (v) => setToggles((t) => ({ ...t, [k]: v }));
-
-  const dayIncidents = useMemo(
-    () => incidents.filter((i) => iso(i.ts) === selectedDay).sort((a, b) => b.ts - a.ts),
-    [incidents, selectedDay]
-  );
-
-  const recent = useMemo(() => [...incidents].sort((a, b) => b.ts - a.ts), [incidents]);
-  const visibleRecent = showOlder ? recent : recent.slice(0, 4);
-
-  const summary = useMemo(() => ({
-    falls: dayIncidents.filter((i) => i.type === "fall").length,
-    distress: dayIncidents.filter((i) => i.type === "distress").length,
-    resolutions: dayIncidents.filter((i) => i.status === "resolved").length,
-    falseAlarms: dayIncidents.filter((i) => i.type === "false").length,
-  }), [dayIncidents]);
-
-  const activeFalls = incidents.filter((i) => i.type === "fall" && i.status === "active");
-  const otherZoneFall = activeFalls.find((i) => i.zoneId !== zoneId);
-
-  const zoneStatus = (id) => {
-    const active = incidents.filter((i) => i.status === "active" && i.zoneId === id);
-    if (active.some((i) => i.type === "fall")) return "fall";
-    if (active.length) return "monitor";
-    return "clear";
-  };
-
-  const selectedDayLabel = new Date(selectedDay + "T00:00:00").toLocaleDateString([], {
-    day: "numeric", month: "long", year: "numeric",
-  });
-
-  const jumpTo = (incident) => {
-    setZoneId(incident.zoneId);
-    setSelectedDay(iso(incident.ts));
-    setMonth(incident.ts.getMonth());
-    setYear(incident.ts.getFullYear());
-  };
-
-  return (
-    <div
-      className="min-h-screen w-full p-3 sm:p-5"
-      style={{
-        fontFamily: FONT,
-        color: C.ink,
-        background: `linear-gradient(160deg, ${C.pageTop}, ${C.pageBottom})`,
-      }}
-    >
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 lg:flex-row lg:items-start">
-
-        <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[300px]">
-          <Panel className="p-3">
-            <Select
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "monitor", label: "Monitor" },
-                { value: "review", label: "Review" },
-                { value: "settings", label: "Settings" },
-              ]}
-              style={{ fontSize: 16, padding: "9px 12px" }}
-            />
-          </Panel>
-
-          <Panel className="p-4">
-            <SectionTitle>Calendar</SectionTitle>
-            <Calendar
-              month={month} year={year}
-              onMonth={setMonth} onYear={setYear}
-              selected={selectedDay} onSelect={setSelectedDay}
-              incidents={incidents}
-            />
-          </Panel>
-
-          <Panel className="p-4">
-            <SectionTitle>{selectedDayLabel}</SectionTitle>
-            <div className="flex flex-col gap-2">
-              {dayIncidents.length === 0 && (
-                <p className="py-4 text-center text-sm" style={{ color: C.inkSoft }}>
-                  No incidents recorded on this day.
-                </p>
-              )}
-              {dayIncidents.map((i) => (
-                <AlertCard key={i.id} incident={i} onSelect={jumpTo} />
-              ))}
-            </div>
-          </Panel>
-
-          <Panel className="p-4">
-            <SectionTitle>Incident codes</SectionTitle>
-            <dl className="flex flex-col gap-1.5 text-sm">
-              {[["F", "Fall", C.fall], ["D", "Distress", C.distress], ["X", "False alarm", C.info]].map(
-                ([code, label, color]) => (
-                  <div key={code} className="flex items-center gap-2">
-                    <dt className="w-4 font-bold" style={{ color }}>{code}</dt>
-                    <span style={{ color: C.inkSoft }}>—</span>
-                    <dd>{label}</dd>
-                  </div>
-                )
-              )}
-            </dl>
-          </Panel>
-        </aside>
-
-        <main className="flex min-w-0 flex-1 flex-col gap-3">
-          <div
-            className="rounded-2xl py-3 text-center"
-            style={{ background: C.teal, boxShadow: "0 1px 3px rgba(28,42,66,.12)" }}
-          >
-            <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
-              Smart Assisted Fall Emergency
-            </h1>
-          </div>
-
-          <Panel className="p-3">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <Select
-                value={zoneId}
-                onChange={setZoneId}
-                options={ZONES.map((z) => ({ value: z.id, label: z.name }))}
-                className="w-full sm:w-72"
-                style={{ fontSize: 15, padding: "8px 12px" }}
-              />
-
-              {otherZoneFall ? (
-                <button
-                  type="button"
-                  onClick={() => jumpTo(otherZoneFall)}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus-visible:ring-2"
-                  style={{ color: C.fall }}
-                >
-                  Fall detected in {ZONES.find((z) => z.id === otherZoneFall.zoneId)?.name}
-                  <AlertTriangle size={18} />
-                </button>
-              ) : (
-                <span className="flex items-center gap-2 text-sm" style={{ color: C.inkSoft }}>
-                  <Dot color={C.clear} /> All other zones clear
-                </span>
-              )}
-            </div>
-
-            {toggles.multiZone ? (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {ZONES.slice(0, 4).map((z) => (
-                  <div key={z.id} className="relative">
-                    <CameraStage zoneId={z.id} toggles={toggles} scale={0.6} className="aspect-video w-full" />
-                    <button
-                      type="button"
-                      onClick={() => { setZoneId(z.id); setToggle("multiZone")(false); }}
-                      className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-1 text-[11px] font-semibold text-white focus:outline-none focus-visible:ring-2"
-                    >
-                      {z.name}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <CameraStage zoneId={zoneId} toggles={toggles} className="aspect-video w-full" />
-            )}
-          </Panel>
-
-          <Panel className="p-3">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              <Toggle on={toggles.skeleton} onChange={setToggle("skeleton")} label="Skeleton overlay" icon={PersonStanding} tone={C.tealDeep} />
-              <Toggle on={toggles.multiZone} onChange={setToggle("multiZone")} label="Multi-zone viewing" icon={Layers} tone={C.tealDeep} />
-              <Toggle on={toggles.faceBlur} onChange={setToggle("faceBlur")} label="Face blur" icon={ScanFace} tone={C.tealDeep} />
-              <Toggle on={toggles.sms} onChange={setToggle("sms")} label="SMS alert" icon={MessageSquare} />
-              <Toggle on={toggles.audio} onChange={setToggle("audio")} label="Audio alert" icon={Volume2} />
-              <span className="ml-auto text-sm tabular-nums" style={{ color: C.inkSoft }}>
-                {now.toLocaleTimeString()}
-              </span>
-            </div>
-          </Panel>
-        </main>
-
-        <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[280px]">
-          <Panel className="p-4">
-            <SectionTitle>Status</SectionTitle>
-            <ul className="flex flex-col gap-2 text-sm">
-              {[["clear", "Clear", C.clear], ["monitor", "Monitor", C.distress], ["fall", "Fall detected", C.fall]].map(
-                ([key, label, color]) => {
-                  const count = ZONES.filter((z) => zoneStatus(z.id) === key).length;
-                  return (
-                    <li key={key} className="flex items-center gap-2.5">
-                      <Dot color={color} pulse={key === "fall" && count > 0} />
-                      <span className="font-medium">{label}</span>
-                      <span className="ml-auto tabular-nums" style={{ color: C.inkSoft }}>
-                        {count} {count === 1 ? "zone" : "zones"}
-                      </span>
-                    </li>
-                  );
-                }
-              )}
-            </ul>
-          </Panel>
-
-          <Panel className="p-4">
-            <SectionTitle>Recent alerts</SectionTitle>
-            <div className="flex flex-col gap-2">
-              {visibleRecent.map((i) => (
-                <AlertCard key={i.id} incident={i} onSelect={jumpTo} />
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowOlder((v) => !v)}
-              className="mx-auto mt-3 flex flex-col items-center gap-0.5 focus:outline-none focus-visible:ring-2"
-              style={{ color: C.inkSoft }}
-            >
-              <ChevronDown
-                size={18}
-                style={{ transform: showOlder ? "rotate(180deg)" : "none", transition: "transform .18s" }}
-              />
-              <span className="text-[11px]">{showOlder ? "Show fewer" : "View older incidents"}</span>
-            </button>
-          </Panel>
-
-          <Panel className="p-4">
-            <SectionTitle>Today&rsquo;s summary</SectionTitle>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                ["Falls", summary.falls, C.fall],
-                ["Distress", summary.distress, C.distress],
-                ["Resolutions", summary.resolutions, C.clear],
-                ["False alarms", summary.falseAlarms, C.info],
-              ].map(([label, value, color]) => (
-                <div
-                  key={label}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2"
-                  style={{ background: C.panelMuted, border: `1px solid ${C.hair}` }}
-                >
-                  <Dot color={color} />
-                  <div className="min-w-0">
-                    <div className="text-2xl font-bold leading-none tabular-nums">{value}</div>
-                    <div className="truncate text-[11px]" style={{ color: C.inkSoft }}>{label}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </aside>
-      </div>
-    </div>
-  );
+  const [page, setPage] = useState('monitor');
+  const { events, update, storageError } = useAdminEvents();
+  const [selectedId, select] = useState(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
+  const [type, setType] = useState('all');
+  const [date, setDate] = useState('');
+  const [note, setNote] = useState('');
+  const [settings, setSettings] = useState(loadSettings);
+  const [draft, setDraft] = useState(settings);
+  const [message, setMessage] = useState('');
+  const selected = events.find(e => e.id === selectedId);
+  const pending = events.filter(e => e.status !== 'resolved');
+  const today = events.filter(e => localDay(e.occurredAt) === localDay(new Date()));
+  const filtered = events.filter(e => (status === 'all' || e.status === status) && (type === 'all' || e.type === type) && (!date || localDay(e.occurredAt) === date) && `${e.id} ${EVENT_TYPES[e.type]} ${e.trackId}`.toLowerCase().includes(search.toLowerCase())).sort((a,b) => new Date(b.occurredAt)-new Date(a.occurredAt));
+  const openEvent = e => { select(e.id); setNote(''); setPage('incidents'); };
+  const act = action => { update(selected.id, action, note); setNote(''); };
+  const save = e => { e.preventDefault(); try { localStorage.setItem('safe-admin-settings-v1', JSON.stringify(draft)); setSettings(draft); setMessage('Demo preferences saved on this browser. Detection thresholds are not applied to the backend.'); } catch { setMessage('Unable to save. Browser storage is unavailable.'); } };
+  const table = rows => <div className="table-scroll"><table><thead><tr><th>Event / type</th><th>Detected at</th><th>Source</th><th>Alert level</th><th>Status</th><th>Outcome</th><th><span className="sr-only">Action</span></th></tr></thead><tbody>{rows.map(e => <tr key={e.id}><td><strong>{EVENT_TYPES[e.type]}</strong><small>{e.id}</small></td><td>{formatTime(e.occurredAt)}</td><td>Camera 01<small>Anonymous track</small></td><td><SeverityBadge event={e}/></td><td><Badge event={e}/></td><td>{e.outcome.replace('_',' ')}</td><td><button className="text-button" onClick={() => openEvent(e)} aria-label={`Review ${e.id}`}>Review <ArrowUpRight size={14}/></button></td></tr>)}</tbody></table>{!rows.length && <div className="empty">No incidents match these filters.</div>}</div>;
+  return <div className="admin-app"><aside className="sidebar"><a className="brand" href="#monitor" onClick={() => setPage('monitor')}><span className="brand-icon"><Activity/></span> SAFE<span className="brand-dot">•</span></a><p className="sidebar-caption">CARE OPERATIONS</p><nav aria-label="Main navigation">{[['monitor','Monitor',Monitor],['incidents','Incidents',ClipboardList],['settings','Settings',Settings]].map(([id,label,Icon]) => <button key={id} className={page === id ? 'nav-item current' : 'nav-item'} aria-current={page === id ? 'page' : undefined} onClick={() => setPage(id)}><Icon size={19}/>{label}{id === 'incidents' && <span className="nav-count">{pending.length}</span>}</button>)}</nav><div className="sidebar-bottom"><ShieldCheck size={20}/><div><strong>Administrator</strong><small>Demo workspace</small></div><span className="avatar">AD</span></div></aside>
+  <div className="workspace"><header className="topbar"><span>SAFE / <strong>{page[0].toUpperCase()+page.slice(1)}</strong></span><span className="demo-indicator"><i/> Prototype · sample data</span></header><main className="page-content"><div className="page-heading"><div><p className="eyebrow">ADMIN WORKSPACE</p><h1>{page === 'monitor' ? 'Monitor overview' : page === 'incidents' ? 'Incident workspace' : 'Workspace settings'}</h1><p>{page === 'monitor' ? 'One camera. A clear view of events that need attention.' : page === 'incidents' ? 'Review detections and keep a record of your response.' : 'Manage demo preferences and review integration readiness.'}</p></div><span className="date-label">{new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'})}</span></div>
+  {storageError && <p role="alert" className="notice">{storageError}</p>}
+  {page === 'monitor' && <><div className="stats">{[['Awaiting review',events.filter(e=>e.status==='active').length,'Action required'],['Acknowledged',events.filter(e=>e.status==='acknowledged').length,'Review in progress'],['Events today',today.length,'All detection types'],['Resolved today',events.filter(e=>e.status==='resolved' && localDay(e.updatedAt)===localDay(new Date())).length,'Based on latest update']].map(([label,value,caption])=><div className="stat" key={label}><span>{label}</span><strong>{value}</strong><small>{caption}</small></div>)}</div><div className="monitor-grid"><section className="surface camera-panel"><div className="section-heading"><div><h2>Camera 01</h2><p>Standard webcam · single-camera scope</p></div><span className="badge neutral">Simulated</span></div><CameraStage zoneId="A" toggles={{skeleton:settings.skeleton, faceBlur:false}} className="aspect-video w-full"/><div className="camera-footer"><span><Camera size={16}/> YOLO overlay preview</span><label><input type="checkbox" checked={settings.skeleton} onChange={e=>setSettings({...settings,skeleton:e.target.checked})}/> Skeleton overlay</label></div><p className="muted">The camera scene and detection boxes are samples; they are independent of the incident review records.</p></section><section className="surface"><div className="section-heading"><h2>Needs attention</h2><span className="badge neutral">{pending.length} open</span></div><div className="attention-list">{pending.map(e=><button className={`attention-card ${e.severity}`} key={e.id} onClick={()=>openEvent(e)}><span className="eyebrow">{SEVERITIES[e.severity]}</span><strong>{EVENT_TYPES[e.type]}</strong><span>{e.id} · {formatTime(e.occurredAt)}</span><Badge event={e}/><span className="review-link">Open incident <ArrowUpRight size={15}/></span></button>)}{!pending.length && <div className="empty"><Check/> All demo incidents reviewed.</div>}</div></section></div><section className="surface"><div className="section-heading"><div><h2>Recent incidents</h2><p>A timestamped record of possible distress events</p></div><button className="text-button" onClick={()=>setPage('incidents')}>View all incidents <ArrowUpRight size={16}/></button></div>{table([...events].sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt)).slice(0,4))}</section></>}
+  {page === 'incidents' && <div className={selected ? 'incident-grid' : ''}><section className="surface"><div className="section-heading"><h2>Event log <span className="muted">/ {filtered.length}</span></h2><button className="text-button" onClick={()=>{setSearch('');setStatus('all');setType('all');setDate('');}}>Clear filters</button></div><div className="filters"><label className="search-field"><Search size={16}/><input aria-label="Search incidents" placeholder="Search ID or event…" value={search} onChange={e=>setSearch(e.target.value)}/></label><select aria-label="Event type" value={type} onChange={e=>setType(e.target.value)}><option value="all">All event types</option>{Object.entries(EVENT_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select aria-label="Incident status" value={status} onChange={e=>setStatus(e.target.value)}><option value="all">All statuses</option>{Object.entries(STATUSES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><input aria-label="Incident date" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>{table(filtered)}</section>{selected && <aside className="surface incident-detail"><div className="section-heading"><span className="eyebrow">{selected.id}</span><button className="text-button" onClick={()=>select(null)}>Close</button></div><h2>{EVENT_TYPES[selected.type]}</h2><div className="incident-badges"><SeverityBadge event={selected}/><Badge event={selected}/></div><dl><dt>Detected</dt><dd>{formatTime(selected.occurredAt)}</dd><dt>Source</dt><dd>Camera 01 · demo</dd><dt>Tracking reference</dt><dd>{selected.trackId}</dd><dt>Assigned to</dt><dd>{selected.assignedTo || 'Unassigned'}</dd><dt>Outcome</dt><dd>{selected.outcome.replace('_',' ')}</dd></dl><h3>Response history</h3><ol className="timeline">{selected.history.map(h=><li key={h.id}><strong>{h.action.replace('_',' ')}</strong><small>{h.actor} · {formatTime(h.at)}</small></li>)}</ol>{selected.notes.map((n,i)=><p className="note" key={i}>{n.text}<small>{n.actor}</small></p>)}{selected.status !== 'resolved' && <><label className="field">Review note<textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Add context for this response" maxLength={1000}/></label><div className="detail-actions">{selected.status === 'active' && <button className="primary" onClick={()=>act('acknowledge')}>Acknowledge</button>}<button className="secondary" onClick={()=>act('resolve')}>Resolve · confirmed</button><button className="text-button" onClick={()=>act('false_alarm')}>Resolve as false alarm</button></div></>}<p className="muted">Demo actions are saved in this browser only.</p></aside>}</div>}
+  {page === 'settings' && <form onSubmit={save}><div className="settings-grid"><section className="surface settings-card"><div className="section-heading"><h2><SlidersHorizontal size={20}/> Detection preferences</h2><span className="badge neutral">Draft</span></div><p>Proposed configuration for the single-camera prototype. Saving does not change Python detector behaviour.</p><label className="field">Prolonged sitting threshold <div className="unit-input"><input type="number" min="1" max="1440" required value={draft.sittingMinutes} onChange={e=>setDraft({...draft,sittingMinutes:Number(e.target.value)})}/><span>minutes</span></div></label><label className="field">Isolation threshold<div className="unit-input"><input type="number" min="1" max="1440" required value={draft.isolationMinutes} onChange={e=>setDraft({...draft,isolationMinutes:Number(e.target.value)})}/><span>minutes</span></div></label><p className="muted">Initial values reflect the current detector setup. Pacing and unusual-hours movement remain in backlog.</p></section><section className="surface settings-card"><div className="section-heading"><h2><Monitor size={20}/> Display & alerts</h2></div><label className="setting-row"><span><strong>Skeleton overlay</strong><small>Show simulated pose lines on Monitor</small></span><input type="checkbox" checked={draft.skeleton} onChange={e=>setDraft({...draft,skeleton:e.target.checked})}/></label><div className="setting-row"><span><strong>Visual incident alerts</strong><small>Red: high / Yellow: medium / Green: low</small></span><span className="badge neutral">Enabled</span></div><div className="setting-row"><span><strong>SMS & audio delivery</strong><small>Notification service not connected</small></span><span className="badge neutral">Planned</span></div><div className="setting-row"><span><strong>Face / image blurring</strong><small>Privacy feasibility decision pending</small></span><span className="badge neutral">Under review</span></div></section><section className="surface settings-card"><div className="section-heading"><h2><ShieldCheck size={20}/> Access & privacy</h2></div><div className="setting-row"><span><strong>Administrator layout</strong><small>No authenticated user session</small></span><span className="badge neutral">Demo only</span></div><p>Restricted staff access is in scope. Firebase Authentication and server-enforced permissions are required before live use.</p><p className="muted">Event records use session-scoped tracking references, without resident names or identity profiles. Data retention policy is still to be agreed.</p></section><section className="surface settings-card"><div className="section-heading"><h2><Bell size={20}/> Integration readiness</h2></div><ol className="integration-list"><li><span>01</span><div><strong>Camera → YOLO detector</strong><small>Existing Python pipeline; browser stream pending</small></div></li><li><span>02</span><div><strong>Detector → event adapter</strong><small>Map fall, sitting and isolation to shared events</small></div></li><li><span>03</span><div><strong>Firebase → dashboard</strong><small>Console connection and persistent event feed pending</small></div></li><li><span>04</span><div><strong>Staff response → event history</strong><small>Local demo ready; authenticated writes pending</small></div></li></ol></section></div><div className="save-bar"><p role="status">{message || 'Preferences apply to this demo browser only.'}</p><button type="button" className="secondary" onClick={()=>{setDraft(settings);setMessage('Unsaved changes discarded.');}}>Discard changes</button><button className="primary" type="submit">Save preferences</button></div></form>}
+  <footer className="page-footer"><span>SAFE · Smart Assisted Fall and Emergency</span><span>Semester prototype / Admin experience</span></footer></main></div></div>;
 }
