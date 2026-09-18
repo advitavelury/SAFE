@@ -29,81 +29,72 @@ class FallDetectorTests(unittest.TestCase):
     def setUp(self):
         self.detector = FallDetector()
         self.person = Person(id=1)
-        self.person_id = 1
 
     def test_first_seen_lying_down_does_not_trigger_fall(self):
         self.detector.manage_person_posture(
-            "lying down",
+            posture="lying down",
             person=self.person,
-            person_id=self.person_id,
-            video_time=0.0,
+            frame_time=0.0,
         )
 
         self.assertIsNone(self.person.down_since)
         self.assertFalse(
             self.detector.alert_fall_event(
-                person_id=self.person_id,
                 person=self.person,
-                video_time=100.0,
+                frame_time=100.0,
             )
         )
 
     def test_standing_to_falling_to_lying_down_triggers_after_hold_time(self):
         self.detector.manage_person_posture(
-            "standing",
+            posture="standing",
             person=self.person,
-            person_id=self.person_id,
-            video_time=0.0,
+            frame_time=0.0,
         )
         self.detector.manage_person_posture(
-            "falling",
+            posture="falling",
             person=self.person,
-            person_id=self.person_id,
-            video_time=0.1,
+            frame_time=0.1,
         )
         self.detector.manage_person_posture(
-            "lying down",
+            posture="lying down",
             person=self.person,
-            person_id=self.person_id,
-            video_time=0.2,
+            frame_time=0.2,
         )
 
-        self.assertEqual("lying down", self.detector.person_posture[self.person_id])
+        self.assertEqual("lying down", self.detector.person_posture[self.person.id])
         self.assertEqual(0.2, self.person.down_since)
         self.assertFalse(
             self.detector.alert_fall_event(
-                person_id=self.person_id,
                 person=self.person,
-                video_time=0.2 + DOWN_HOLD_SECONDS - 0.01,
+                frame_time=0.2 + DOWN_HOLD_SECONDS - 0.01,
             )
         )
         self.assertTrue(
             self.detector.alert_fall_event(
-                person_id=self.person_id,
                 person=self.person,
-                video_time=0.2 + DOWN_HOLD_SECONDS,
+                frame_time=0.2 + DOWN_HOLD_SECONDS,
             )
         )
 
     def test_recovery_grace_clears_fall_after_sustained_upright_posture(self):
-        self.detector.manage_person_posture("standing", self.person, self.person_id, video_time=0.0)
-        self.detector.manage_person_posture("falling", self.person, self.person_id, video_time=0.1)
-        self.detector.manage_person_posture("lying down", self.person, self.person_id, video_time=0.2)
+        self.detector.manage_person_posture(posture="standing", person=self.person, frame_time=0.0)
+        self.detector.manage_person_posture(posture="falling", person=self.person, frame_time=0.1)
+        self.detector.manage_person_posture(posture="lying down", person=self.person, frame_time=0.2)
 
         with redirect_stdout(StringIO()):
-            self.detector.manage_person_posture("standing", self.person, self.person_id, video_time=0.3)
-        self.assertEqual("lying down", self.detector.person_posture[self.person_id])
+            self.detector.manage_person_posture(posture="standing", person=self.person,frame_time=0.3)
+        self.assertEqual("lying down", self.detector.person_posture[self.person.id])
         self.assertIsNotNone(self.person.down_since)
 
         with redirect_stdout(StringIO()):
             self.detector.manage_person_posture(
-                "standing",
-                self.person,
-                self.person_id,
-                video_time=0.3 + RECOVERY_GRACE_SECONDS,
+                posture="standing",
+                person=self.person,
+                frame_time=0.3 + RECOVERY_GRACE_SECONDS,
             )
 
-        self.assertEqual("standing", self.detector.person_posture[self.person_id])
+        self.assertEqual("standing", self.detector.person_posture[self.person.id])
         self.assertIsNone(self.person.down_since)
 
 

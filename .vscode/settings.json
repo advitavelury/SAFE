@@ -1,0 +1,13 @@
+{
+  "python.analysis.extraPaths": [
+    "backend/detection"
+  ],
+  "python.testing.unittestEnabled": true,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py"
+  ]
+}
