@@ -1,6 +1,6 @@
-from person import Person
-from frame_context import FrameContext
-from overlay import draw_label
+from ..person import Person
+from ..frame_context import FrameContext
+from ..overlay import draw_label
 from datetime import timedelta
 
 CONSECUTIVE_FRAMES_THRESHOLD = 10 # The number of frames required with occupancy more than 1 to reset the isolation timer of a person.

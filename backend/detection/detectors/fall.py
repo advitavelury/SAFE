@@ -1,6 +1,6 @@
-from person import Person
-from frame_context import FrameContext
-from overlay import draw_label
+from ..person import Person
+from ..frame_context import FrameContext
+from ..overlay import draw_label
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel

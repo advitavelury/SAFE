@@ -1,8 +1,8 @@
-from person import Person
 from datetime import datetime, time
 from dataclasses import dataclass
-from frame_context import FrameContext
-from overlay import draw_label
+from ..person import Person
+from ..frame_context import FrameContext
+from ..overlay import draw_label
 
 # Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
 # below the box midpoint so it doesn't overlap the other detectors' labels -
