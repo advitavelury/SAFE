@@ -52,9 +52,9 @@ second model and thread scene state through - a bigger change than this file.
 import math
 from datetime import timedelta
 
-from person import Person
-from frame_context import FrameContext
-from overlay import draw_label, draw_box
+from ..person import Person
+from ..frame_context import FrameContext
+from ..overlay import draw_label, draw_box
 
 # COCO keypoint indices
 NOSE = 0
