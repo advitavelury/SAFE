@@ -14,5 +14,7 @@ build/
 # Environment and local machine files
 .env
 .env.*
+# Firebase service account credentials
+**/*firebase-adminsdk*.json
 .DS_Store
 *.log

@@ -8,6 +8,7 @@ import os
 from .person import Person
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from .frame_context import FrameContext
+from ..event import event_service
 import math
 from threading import Lock, Event
 
