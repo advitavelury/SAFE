@@ -1,7 +1,7 @@
 
-from streamers import FrameStreamer
 from fastapi import FastAPI 
-from event import event_service
+from .streamers import FrameStreamer
+from .event import event_service
 
 def setup_routes(streamer: FrameStreamer):
     app = FastAPI()

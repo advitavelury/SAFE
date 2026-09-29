@@ -55,6 +55,7 @@ from datetime import timedelta
 from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label, draw_box
+from ...event_types import EventType
 
 # COCO keypoint indices
 NOSE = 0
@@ -301,13 +302,13 @@ class SittingDetector():
             return BOX_COLOR_WARNING
         return None
 
-    def check_detector(self, ctx: FrameContext, person: Person):
+    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
         frame = ctx.frame
         frame_time = ctx.frame_time
 
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
-            return frame
+            return None
 
         position = self.manage_person_posture(posture, person=person,
                                                frame_time=frame_time)
@@ -325,6 +326,7 @@ class SittingDetector():
             draw_label(frame, f"Person {person.id} has been sitting for {seconds:.0f}s",
                        (30, 60), LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} has been sitting for over "
-                  f"{self.threshold_seconds:.0f}s =========================")
+                  f"{self.threshold_seconds:.0f}s")
             person.sitting_alerted = True
-        return frame
+            return EventType.SITTING_DISTRESS
+        return None

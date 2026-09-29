@@ -2,11 +2,12 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 from typing import Literal
 import cv2
-from firebase_config import production_db, production_bucket
+from .firebase_config import production_db, production_bucket
+from .event_types import EventType
 
 class Event(BaseModel):
     id: str
-    event_type: Literal["fall", "distress"]
+    event_type: EventType
     timestamp: datetime
     image_url: str
     image_path: str
@@ -17,7 +18,13 @@ class EventService:
         self.db = db
         self.bucket = bucket
 
-    def create_event(self, event_type: str, timestamp:datetime, frame) -> Event:
+    def create_event(self, event_type: EventType, frame, timestamp:datetime|None = None) -> Event:
+
+        event_type = EventType(event_type) # validate the event type before saving
+
+        if timestamp is None:
+            timestamp = datetime.now()
+
         # 1. Generate event ID
         doc_ref = self.db.collection("events").document()
         event_id = doc_ref.id
@@ -30,7 +37,7 @@ class EventService:
         image_bytes = encoded_image.tobytes()
 
         # 3. Upload JPEG to Firebase Storage
-        image_path = f"events/{event_id}.id"
+        image_path = f"events/{event_id}.jpeg"
         blob = self.bucket.blob(image_path)
         blob.upload_from_string(
             image_bytes,
@@ -40,7 +47,7 @@ class EventService:
         # 4. Save event metadata to Firestore
         doc_ref.set(
             {
-                "event_type": event_type,
+                "event_type": event_type.value,
                 "timestamp": timestamp, 
                 "image_path": image_path
             }
@@ -51,6 +58,7 @@ class EventService:
             event_type=event_type,
             timestamp=timestamp,
             image_path=image_path,
+            image_url=""
         )
 
     def get_event(self, event_id: str):
@@ -74,7 +82,7 @@ class EventService:
 
         return Event(
             id=event_id,
-            event_type=data["event_type"],
+            event_type=EventType(data["event_type"]),
             timestamp=data["timestamp"],
             image_path=image_path,
             image_url=image_url

@@ -4,10 +4,9 @@ from os.path import join
 from threading import Thread, Lock, Event
 import uvicorn
 
-from detection.detection import VideoMode
-from detection.detection import CameraMode
-from streamers import FrameStreamer
-from routes import setup_routes
+from .detection.detection import VideoMode, CameraMode
+from .streamers import FrameStreamer
+from .routes import setup_routes
 
 
 # This code only runs if you execute the file directly

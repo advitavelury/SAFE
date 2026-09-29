@@ -2,7 +2,7 @@
 import cv2
 from ultralytics import YOLO
 import time
-from datetime import timedelta
+from datetime import timedelta, datetime
 from abc import ABC, abstractmethod
 import os
 from .person import Person
@@ -94,6 +94,10 @@ class Program(ABC):
                         if person is None:
                             person = Person(person_id)
                             self.persons[person_id] = person
+                        if person.fall_alerted or person.wandering_alerted or person.isolation_alerted or person.sitting_alerted:
+                            # if the person already has an outstanding event, it needs to be cleared before we check for any new events. 
+                            # This will prevent accumuluating multiple of the same events. 
+                            continue 
                         box = boxes[i]
                         kp = all_kp[i]  # keypoints of a person
                         confidence = results[0].keypoints.conf[i]
@@ -103,11 +107,15 @@ class Program(ABC):
                             frame_time=frame_time, 
                             occupancy=people_in_frame
                         )
-                        fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                        wandering_frame = self.wandering_detector.check_detector(ctx=frame_context, person = person)
-                        isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                        sitting_frame = self.sitting_detector.check_detector(ctx=frame_context, person = person)
-                        annotated_frame = sitting_frame # CHANGE this to another frame for testing other detectors
+                        fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                        wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                        isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                        sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+
+                        event = fall_event or wandering_event or isolation_event or sitting_event
+                        if event:
+                            event_service.create_event(event_type=event, frame=annotated_frame)
+
                 # Write the fps to the frame.    
                 display_frame = frame if annotated_frame is None else annotated_frame
                 cv2.putText(

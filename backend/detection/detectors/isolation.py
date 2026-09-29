@@ -2,6 +2,7 @@ from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label
 from datetime import timedelta
+from ...event_types import EventType
 
 CONSECUTIVE_FRAMES_THRESHOLD = 10 # The number of frames required with occupancy more than 1 to reset the isolation timer of a person.
 
@@ -28,14 +29,14 @@ class IsolationDetector():
                 del self.person_alone_since[person_id]
                 del self.consecutive_company_frames[person_id]
 
-    def check_detector(self, ctx: FrameContext, person: Person):
+    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
         box_midpoint = person.box_midpoint()
         frame_time = ctx.frame_time
         people_in_frame = ctx.occupancy
         frame = ctx.frame
         if people_in_frame > 1:
             self.reset_isolation_status(person)
-            return frame
+            return None
         else:
             alone_since = self.person_alone_since.get(person.id, None)
             self.consecutive_company_frames.pop(person.id, None) # clear the consecutive frames.
@@ -43,9 +44,11 @@ class IsolationDetector():
             alone_since = frame_time
             self.person_alone_since[person.id] = alone_since
         time_alone = frame_time - alone_since
-        if time_alone > self.threshold_seconds:
-            person.isolation_alerted = True
         label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
         draw_label(frame, f"Isolation time {time_alone:.1f}s.", label_point,
-                   LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
-        return frame
+                           LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
+        if time_alone > self.threshold_seconds:
+            person.isolation_alerted = True
+            return EventType.ISOLATION_DISTRESS
+        
+        return None
