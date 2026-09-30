@@ -2,7 +2,7 @@
 from fastapi import FastAPI, HTTPException 
 from pydantic import BaseModel, Field
 from .streamers import FrameStreamer
-from .event import event_service
+from .event import event_service, Event
 from .detection.detection import Program
 
 class CompleteEventRequest(BaseModel):
@@ -15,7 +15,7 @@ def setup_routes(streamer: FrameStreamer, program: Program):
     def video_feed():
         return streamer.get_stream()
 
-    @app.get("/events")
+    @app.get("/events", response_model=list[Event])
     def get_events():
         return event_service.get_events()
 
@@ -32,7 +32,7 @@ def setup_routes(streamer: FrameStreamer, program: Program):
         program.enqueue_event_completion(event_id)
         return event
 
-    @app.get("/events/{event_id}")
+    @app.get("/events/{event_id}", response_model=Event)
     def get_event(event_id: str):
         return event_service.get_event(event_id)
 

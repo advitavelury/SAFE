@@ -67,7 +67,7 @@ class EventService:
             image_path=image_path,
         )
 
-    def get_event(self, event_id: str):
+    def get_event(self, event_id: str) -> Event | None:
         doc_ref = self.db.collection("events").document(event_id)
         doc = doc_ref.get()
 
@@ -133,8 +133,35 @@ class EventService:
 
         return update_completion(self.db.transaction())
 
-    def get_events(self):
-        pass
+    def get_events(self) -> list[Event]:
+        events = []
+
+        for doc in self.db.collection("events").stream():
+            data = doc.to_dict()
+
+            image_url = self.bucket.blob(data["image_path"]).generate_signed_url(
+                version="v4",
+                expiration=timedelta(hours=1),
+                method="GET",
+            )
+
+            event = Event(
+                id=doc.id,
+                person_id=data["person_id"],
+                event_type=EventType(data["event_type"]),
+                status=EventStatus(
+                    data.get("status", EventStatus.OPEN.value)
+                ),
+                timestamp=data["timestamp"],
+                image_path=data["image_path"],
+                image_url=image_url,
+                completed_by=data.get("completed_by"),
+                completed_at=data.get("completed_at"),
+            )
+
+            events.append(event)
+
+        return events
 
     def delete_event(self, event_id: str):
         pass
