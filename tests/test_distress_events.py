@@ -67,7 +67,6 @@ class DistressSittingTests(unittest.TestCase):
             self.person.manage_person_posture("standing", video_time=float(time_value))
 
         self.assertEqual(0.0, self.person.sitting_since)
-        self.assertFalse(self.person.sitting_alerted)
 
     def test_sitting_timer_resets_after_enough_non_sitting_observations(self):
         self.person.manage_person_posture("sitting", video_time=0.0)
@@ -80,14 +79,12 @@ class DistressSittingTests(unittest.TestCase):
 
     def test_acknowledge_clears_open_alert_latches(self):
         self.person.alerted = True
-        self.person.sitting_alerted = True
 
         self.assertEqual(distress.BOX_COLOUR_FALL_ALERT, self.person.box_colour())
 
         self.person.acknowledge()
 
         self.assertFalse(self.person.alerted)
-        self.assertFalse(self.person.sitting_alerted)
         self.assertEqual(distress.BOX_COLOUR_NORMAL, self.person.box_colour())
 
 

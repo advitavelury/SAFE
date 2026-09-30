@@ -33,7 +33,7 @@ if __name__ == "__main__":
 
     streamer = FrameStreamer(program=detector, frame_lock=frame_lock)
 
-    app = setup_routes(streamer=streamer)
+    app = setup_routes(streamer=streamer, program=detector)
     try:
         uvicorn.run(app, host="127.0.0.1", port=8000)
     finally:

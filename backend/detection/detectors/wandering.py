@@ -49,7 +49,6 @@ class WanderingDetector():
         now = datetime.now().time()
         res = self.is_normal_time(now = now)
         if not res:
-            person.wandering_alerted = True
             label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
             draw_label(frame, f"Person {person.id} wandering detected.", label_point,
                        LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)

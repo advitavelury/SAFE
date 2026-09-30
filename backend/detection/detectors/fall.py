@@ -83,7 +83,6 @@ class FallDetector():
             draw_label(frame, f"Person {person.id} had a fall", (30, 40),
                        LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} had a fall")
-            person.fall_alerted = True
             return EventType.FALL
         return None
 

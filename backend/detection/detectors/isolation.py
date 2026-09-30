@@ -48,7 +48,6 @@ class IsolationDetector():
         draw_label(frame, f"Isolation time {time_alone:.1f}s.", label_point,
                            LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
         if time_alone > self.threshold_seconds:
-            person.isolation_alerted = True
             return EventType.ISOLATION_DISTRESS
         
         return None

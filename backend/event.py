@@ -1,15 +1,19 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
-from typing import Literal
+from firebase_admin import firestore
 import cv2
 from .firebase_config import production_db, production_bucket
-from .event_types import EventType
+from .event_types import EventType, EventStatus
 
 class Event(BaseModel):
     id: str
+    person_id: int
+    status: EventStatus = EventStatus.OPEN
+    completed_at: datetime | None = None 
+    completed_by: str | None = None 
     event_type: EventType
     timestamp: datetime
-    image_url: str
+    image_url: str | None = None
     image_path: str
 
 class EventService:
@@ -18,12 +22,12 @@ class EventService:
         self.db = db
         self.bucket = bucket
 
-    def create_event(self, event_type: EventType, frame, timestamp:datetime|None = None) -> Event:
+    def create_event(self, person_id:int, event_type: EventType, frame, timestamp:datetime|None = None) -> Event:
 
         event_type = EventType(event_type) # validate the event type before saving
 
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
 
         # 1. Generate event ID
         doc_ref = self.db.collection("events").document()
@@ -47,7 +51,9 @@ class EventService:
         # 4. Save event metadata to Firestore
         doc_ref.set(
             {
+                "person_id": person_id,
                 "event_type": event_type.value,
+                "status": EventStatus.OPEN,
                 "timestamp": timestamp, 
                 "image_path": image_path
             }
@@ -55,10 +61,10 @@ class EventService:
         # 5. Return Event
         return Event(
             id=event_id,
+            person_id=person_id,
             event_type=event_type,
             timestamp=timestamp,
             image_path=image_path,
-            image_url=""
         )
 
     def get_event(self, event_id: str):
@@ -82,11 +88,50 @@ class EventService:
 
         return Event(
             id=event_id,
+            person_id=(data["person_id"]),
             event_type=EventType(data["event_type"]),
             timestamp=data["timestamp"],
             image_path=image_path,
-            image_url=image_url
+            image_url=image_url,
+            status= EventStatus(data.get("status", EventStatus.OPEN.value)), 
+            completed_by=data.get("completed_by"),
+            completed_at=data.get("completed_at"),
         )
+
+    def complete_event(self, event_id : str, completed_by: str ):
+        doc_ref = self.db.collection("events").document(event_id) # The address of the document
+
+        @firestore.transactional
+        def update_completion(transaction):
+            doc = doc_ref.get(transaction=transaction) # fetching the data from the address of the document. 
+
+            if not doc.exists:
+                return None
+
+            data = doc.to_dict()
+
+            # A repeated request leaves the original completion unchanged.
+            if data.get("status") == EventStatus.CLOSED.value:
+                return {"id": doc.id, **data}
+
+            updates = {
+                "status": EventStatus.CLOSED.value,
+            }
+
+            # Preserve any completion details already present.
+            if data.get("completed_by") is None:
+                updates["completed_by"] = completed_by
+
+            if data.get("completed_at") is None:
+                updates["completed_at"] = datetime.now(timezone.utc)
+
+            transaction.update(doc_ref, updates)
+
+            # Update our local dictionary for the response too.
+            data.update(updates)
+            return {"id": doc.id, **data}
+
+        return update_completion(self.db.transaction())
 
     def get_events(self):
         pass

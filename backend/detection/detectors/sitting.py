@@ -274,7 +274,6 @@ class SittingDetector():
                 person.non_sitting_since = frame_time
             elif abs(frame_time - person.non_sitting_since) >= SITTING_BREAK_SECONDS:
                 person.sitting_since = None
-                person.sitting_alerted = False
         person.sitting_position = posture
         return person.sitting_position
 
@@ -327,6 +326,5 @@ class SittingDetector():
                        (30, 60), LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} has been sitting for over "
                   f"{self.threshold_seconds:.0f}s")
-            person.sitting_alerted = True
             return EventType.SITTING_DISTRESS
         return None
