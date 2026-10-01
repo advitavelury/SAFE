@@ -1,6 +1,32 @@
 # SAFE Testing Plan and Report
 
-This document records the current testing strategy, test plan, and test report for SAFE.
+## Integration verification - 1 October 2026
+
+After pulling the team's detector refactor and new dashboard, the tests were
+migrated to the shared `detection` package. Current results:
+
+- Python: 18 tests run, 17 passed, 1 pacing placeholder skipped.
+- Frontend: 12 tests passed, including the team's demo event-transition tests.
+- React production build passed, with a bundle-size warning.
+- Approved staff login, Firestore test-incident display, and a 960 x 540 live
+  MacBook camera image with YOLO overlays were verified in Chrome.
+- The cloud test record is explicitly labelled TEST ONLY. This is connection
+  evidence, not evidence of real fall-detection accuracy.
+
+Coverage now includes detector state timing, alert-latch deduplication,
+Firestore payloads/write failures, camera endpoint access, staff revocation and
+session races, incident adapters, and local calendar dates. Live incident
+acknowledgement/resolution remains disabled; event-transition tests cover the
+isolated demo data model only. No clinical or real-world accuracy claim is made.
+
+Run the current commands in README.md to reproduce the automated checks.
+
+## Historical test plan and report
+
+The sections below retain the earlier plan and report. References to the old
+standalone distress script, observation-count reset logic, and keyboard
+acknowledgement are historical; the current sitting detector uses a sustained
+non-sitting duration. Current results and scope above supersede those claims.
 
 SAFE is a student project prototype for camera-observable distress-event detection in aged-care environments. Testing focuses on verifying detector logic, reducing false alerts, and documenting what is currently working versus what still needs validation.
 

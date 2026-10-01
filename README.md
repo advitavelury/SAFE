@@ -2,221 +2,123 @@
 
 **Smart Assisted Fall and Emergency**
 
-SAFE is a computer-vision prototype for detecting possible distress events in aged-care environments. The project uses YOLO-based person detection and pose tracking to monitor posture and movement cues from a standard camera feed, then display visual alerts when a resident may need staff attention.
+SAFE is a FIT3161 / FIT3162 computer-vision prototype for camera-observable distress events in aged-care environments. It is decision support, not a medical device or a clinically validated emergency system.
 
-This is a decision-support prototype for FIT3161 / FIT3162. It is not a medical device and should not be used as a clinical diagnostic system.
+## Current implementation
 
-## Project Focus
+- Shared YOLO pose and ByteTrack pipeline for fall, prolonged sitting, isolation, and movement outside normal hours.
+- The team's React dashboard with Monitor, incident filtering/detail, and draft settings views.
+- Firebase email/password login with active staff approval.
+- Live Firestore incident records, without falling back to sample data when disconnected.
+- Authenticated local camera frames with YOLO overlays.
+- Pacing is not implemented; unusual-hours movement is not pacing.
 
-The project explores practical, camera-observable distress events that could occur in aged-care homes:
-
-- Fall detection
-- Prolonged sitting or inactivity
-- Pacing or repeated movement patterns
-- Wandering at unusual hours
-- Dashboard-based alert and incident logging
-
-The current implementation is focused on YOLO-based fall detection and prolonged sitting detection. Pacing, wandering, and dashboard integration are planned next-stage features.
-
-## Current Features
-
-### Fall Detection
-
-- Uses YOLO pose tracking to detect people in the frame.
-- Tracks each person with ByteTrack IDs.
-- Classifies posture as standing, falling, or lying down.
-- Confirms a fall only after the person remains lying down for a sustained period.
-- Uses recovery grace logic so one noisy frame does not immediately cancel a fall state.
-- Draws skeletons, bounding boxes, posture labels, FPS, and fall alerts on the video frame.
-
-### Prolonged Sitting Detection
-
-- Uses YOLO pose keypoints to classify sitting posture.
-- Tracks how long each person has remained seated.
-- Raises an alert after the sitting threshold is exceeded.
-- Uses repeated observations so one bad frame does not reset the sitting timer.
-- Supports manual acknowledgement of alerts by pressing `a`.
-
-### Prototype Support
-
-- Supports video-file testing through `VideoMode`.
-- Supports webcam input through `CameraMode`.
-- Includes sample testing footage for fall and sitting detection.
-- Includes YOLO model weights and ByteTrack configuration in `backend/detection`.
-
-## Tech Stack
-
-- Python
-- OpenCV
-- Ultralytics YOLO
-- YOLO pose model
-- ByteTrack
-- NumPy
-- MediaPipe prototype scripts
-
-## Repository Structure
+## Repository
 
 ```text
-SAFE/
-├── README.md
-└── backend/
-    └── detection/
-        ├── bytetrack.yaml
-        ├── yolo26n-pose.pt
-        ├── yolov8n.pt
-        ├── pose_landmarker_lite.task
-        ├── fall detection/
-        │   ├── yolo_detection.py
-        │   ├── MediaPipe&Yolo.py
-        │   └── testing footage/
-        │       └── Fall test.mp4
-        └── distress detection/
-            ├── yolo_detection.py
-            ├── MediaPipe&Yolo.py
-            └── sitting testing footage/
-                ├── Test_1.avi
-                ├── Test_2.avi
-                ├── Test_3.avi
-                ├── Test_4.avi
-                └── Test_5.avi
+backend/
+  detection/
+    detection.py           Shared camera/video pipeline
+    detectors/             Fall, sitting, isolation, wandering
+    person.py              Per-track state
+    firebase_events.py     Incident publishing and alert-latch adapter
+  video_server.py          Authenticated dashboard camera API
+  main.py                  Team's standalone local stream demo
+  routes.py
+  streamers.py
+front-end/
+  src/api/                 Firebase, staff approval, event adapters
+  src/components/          Staff login and live camera
+  tests/
+tests/
+firestore.rules
+firebase.json
+requirements.txt
 ```
 
-## Setup
+## Install
 
-Clone the repository:
-
-```bash
-git clone https://github.com/advitavelury/SAFE.git
-cd SAFE
-```
-
-Create and activate a virtual environment:
+Python 3.11+ is recommended. From the repository root:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+cd front-end
+npm ci
 ```
 
-Install dependencies:
+## Firebase setup
+
+1. Create a Firestore database and register a Firebase web app.
+2. Enable Email/Password in Authentication. Anonymous sign-in is not used.
+3. Create a staff account, then a Firestore document at `users/UID` with `active: true` (boolean) and `role: "admin"` or `"operator"`.
+4. Copy `front-end/.env.example` to `front-end/.env` and fill in the web app configuration.
+5. Copy `backend/.env.example` to `backend/.env`. Point `FIREBASE_SERVICE_ACCOUNT` at a private Admin SDK key stored outside Git, for example in `.secrets/`.
+6. Publish the included Firestore rules through the Firebase console, or using the Firebase CLI:
 
 ```bash
-pip install ultralytics opencv-python numpy mediapipe
+firebase deploy --only firestore:rules --project safe-1426e
 ```
 
-If OpenCV window display fails on your machine, try:
+Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
+
+Both staff roles currently have read-only incident access. Approval is checked before showing the dashboard. Browser incident creation, acknowledgement, resolution, and role changes are denied by the rules. The team's isolated local demo adapter remains available in source, but is not used for live incident data.
+
+## Run the dashboard and camera
+
+From the repository root:
 
 ```bash
-pip install opencv-contrib-python
+.venv/bin/python backend/video_server.py --camera 0 --port 5001
 ```
 
-## Running the Project
-
-Because some folders contain spaces, keep the file paths in quotes.
-
-Run the YOLO fall-detection demo:
+In another terminal:
 
 ```bash
-python "backend/detection/fall detection/yolo_detection.py"
+cd front-end
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Run the YOLO distress-detection demo:
+Open http://127.0.0.1:5173 in Chrome, sign in, and click **Start camera**. Allow Python camera access if prompted. Camera numbers can change when external cameras or iPhone Continuity Camera are connected; use `--camera N` to choose another device.
+
+For a recording, use `--video "path/to/video.mp4"` instead of `--camera`. The browser labels recorded input TEST VIDEO.
+
+The camera API binds to loopback and checks a Firebase bearer token and active staff profile. Approval is rechecked at least every ten seconds. Vite proxies `/api/camera` to port 5001. Frames are displayed at up to five snapshots per second, independently of detector throughput. Capture stops after approximately twenty seconds without frame requests.
+
+The dashboard uses zone A by default; keep `SAFE_ZONE_ID=A` for this single-camera setup. The team's standalone `python backend/main.py` stream on port 8000 is a separate local demo without the staff authentication used by `video_server.py`. Do not expose it publicly or run both programs against the same webcam.
+
+## Incident records
+
+Each rising detector alert latch publishes one document to `incidents`, containing:
+
+- `incidentId`, `type`, `status`
+- `zoneId`, `personId`, `note`, `source`
+- `ts` and `createdAt` server timestamps, plus ISO fallbacks
+
+Types are `fall`, `prolonged_sitting`, `isolation`, and `wandering`. Older `distress` and `false` records remain displayable. Repeated frames do not publish duplicates while a detector's latch remains set. A new event requires the detector to reset that latch or create a new track.
+
+Firestore contains incident metadata, **not recorded footage**. Frames stay local. Writes have a bounded timeout; failures are logged without stopping detection, but are not durably queued or retried. The dashboard currently reads the latest 50 incidents, so its counts and filters are not a complete historical report.
+
+## Tests
 
 ```bash
-python "backend/detection/distress detection/yolo_detection.py"
+.venv/bin/python -m unittest discover -s tests -v
+cd front-end
+node --test tests/*.test.js tests/*.test.mjs
+npm run build
 ```
 
-By default, the scripts currently run against included test footage. To test with a webcam, use the existing `CameraMode` class in the relevant script instead of `VideoMode`.
+Tests cover fall/sitting state transitions, event payloads and latches, camera API access, staff approval lifecycle, event adapters, local dates, and the team's demo event transitions. Pacing has one explicitly skipped placeholder. Unit tests do not establish real-video accuracy or clinical suitability.
 
-Example:
+## Limitations and next steps
 
-```python
-if __name__ == "__main__":
-    detector = CameraMode()
-    detector.run()
-```
-
-## Keyboard Controls
-
-When running video mode:
-
-- `q` quits the demo.
-- `space` pauses or resumes playback.
-- `n` advances one frame while paused.
-- `a` acknowledges open alerts in the distress-detection script.
-
-## Running Tests
-
-The unit tests focus on detector state logic instead of loading YOLO models, webcams, or video files. See [TESTING.md](TESTING.md) for the testing strategy, test plan, current test report, and manual test-log template.
-
-Run all tests from the project root:
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-Current test coverage includes:
-
-- Fall state transitions and alert timing.
-- Fall recovery grace period.
-- Prolonged sitting alert timing.
-- Prolonged sitting reset behaviour after repeated non-sitting observations.
-- Alert acknowledgement and bounding-box alert colour state.
-- Pacing test placeholder, currently skipped until pacing is implemented as a testable module.
-
-## Detection Notes
-
-The fall detector uses posture and time-based logic:
-
-- A person is tracked frame-by-frame using YOLO and ByteTrack.
-- Pose keypoints are used to estimate torso angle and body posture.
-- A fall is only alerted after an upright-to-lying transition persists long enough.
-- Bounding boxes and alert banners stay visible while the alert is active.
-
-The prolonged sitting detector uses seated posture geometry:
-
-- Hip, knee, shoulder, and ankle keypoints are compared.
-- Sitting is detected using knee-drop and corroborating body geometry checks.
-- The sitting timer is not reset by a single unreadable or noisy frame.
-
-Current thresholds are tuned for prototype testing. Real aged-care use would require longer thresholds, clinical input, privacy review, and proper validation.
-
-## Project Scope
-
-SAFE focuses on events that can reasonably be observed using a camera. The project does not claim to detect medical conditions such as dehydration, stroke, heart rate changes, oxygen levels, or breathing difficulty.
-
-The goal is to support staff awareness by surfacing possible incidents that may need human review.
-
-## Planned Work
-
-- Add pacing detection using person movement history and direction changes.
-- Add wandering-at-unusual-hours detection using configurable time windows.
-- Add structured incident/event logs.
-- Connect detection events to a React dashboard.
-- Add configurable thresholds for demo and testing scenarios.
-- Add unit tests for posture state, sitting timers, and movement-event logic.
-- Improve README and test documentation as features mature.
-
-## Privacy and Safety Considerations
-
-SAFE is intended for a controlled student-project environment. Before any real deployment, the system would need:
-
-- Consent and ethics review.
-- Clear data-retention rules.
-- Restricted staff-only access.
-- Face blurring or masking where appropriate.
-- Validation against realistic aged-care scenarios.
-- Human review of every alert before action is taken.
+- Incident response writes, clip recording/cloud storage, face blur, and SMS/audio delivery are not implemented.
+- Settings are draft browser preferences, not live detector configuration.
+- Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
+- A deployed frontend needs a secured camera backend/reverse proxy; the Vite proxy is for local development only.
+- Real deployment requires consent, privacy/retention controls, realistic validation, and human review.
 
 ## Team
 
-FIT3161 / FIT3162 group project.
-
-Team members:
-
-- Advita
-- Zoe
-- Shadrach
-- Phuc
-- Filbert
-
-Add student IDs and group number here if required for submission.
+Advita, Zoe, Shadrach, Phuc, and Filbert.
