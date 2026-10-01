@@ -7,17 +7,19 @@ import sys
 import threading
 import time
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from firebase_admin import auth
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from detection.firebase_events import get_firestore_client, load_backend_env
+from incident_clips import IncidentClips, valid_incident_id
 
 
 class CameraFeed:
-    def __init__(self, source=0, zone_id="A"):
+    def __init__(self, source=0, zone_id="A", clips=None):
         self.source = source
         self.zone_id = zone_id
+        self.clips = clips
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.thread = None
@@ -69,9 +71,12 @@ class CameraFeed:
             frame = cv2.resize(frame, (960, height))
         ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ok:
+            jpeg = encoded.tobytes()
+            if self.clips:
+                self.clips.push(jpeg)
             with self.lock:
                 if not self.stop_event.is_set():
-                    self.jpeg = encoded.tobytes()
+                    self.jpeg = jpeg
                     self.frame_time = time.monotonic()
                     self.state, self.message = "running", "Camera connected."
 
@@ -85,6 +90,8 @@ class CameraFeed:
                         else VideoMode(frame_lock=frame_lock, filepath=str(self.source)))
             if not detector.get_cam().isOpened():
                 raise RuntimeError("Camera could not be opened. Check camera permissions or the selected video source.")
+            if self.clips:
+                detector.event_publisher.on_incident = self.clips.trigger
             detector.run(frame_callback=self._accept_frame, stop_event=self.stop_event, display=False)
             with self.lock:
                 if not self.stop_event.is_set():
@@ -102,6 +109,8 @@ class CameraFeed:
         finally:
             if detector is not None:
                 detector.get_cam().release()
+            if self.clips:
+                self.clips.finish_session()
 
 
 class StaffAuthorizer:
@@ -131,7 +140,7 @@ class StaffAuthorizer:
         return cached[1]
 
 
-def create_app(camera, authorize=None):
+def create_app(camera, authorize=None, clips=None):
     app = Flask(__name__)
     authorize = authorize or StaffAuthorizer()
 
@@ -175,6 +184,23 @@ def create_app(camera, authorize=None):
             return jsonify(camera.status()), 503
         return Response(jpeg, mimetype="image/jpeg")
 
+    @app.get("/api/incidents/<incident_id>/clip")
+    def clip_status(incident_id):
+        if not valid_incident_id(incident_id):
+            return jsonify(error="Invalid incident ID."), 400
+        if clips is None:
+            return jsonify(status="unavailable", message="Recording is not enabled on this server.")
+        return jsonify(clips.status(incident_id))
+
+    @app.get("/api/incidents/<incident_id>/clip/file")
+    def clip_file(incident_id):
+        if not valid_incident_id(incident_id):
+            return jsonify(error="Invalid incident ID."), 400
+        path = clips.clip_path(incident_id) if clips else None
+        if path is None:
+            return jsonify(error="Recording is not available."), 404
+        return send_file(path, mimetype="video/mp4", conditional=True, etag=False)
+
     return app
 
 
@@ -188,6 +214,8 @@ if __name__ == "__main__":
     if args.video and not args.video.is_file():
         parser.error("Video file does not exist.")
     load_backend_env()
-    camera = CameraFeed(source=args.video or args.camera, zone_id=os.getenv("SAFE_ZONE_ID", "A"))
+    clips = IncidentClips(Path(__file__).resolve().parent / "recordings")
+    camera = CameraFeed(source=args.video or args.camera, zone_id=os.getenv("SAFE_ZONE_ID", "A"), clips=clips)
+    atexit.register(clips.close)
     atexit.register(camera.stop)
-    create_app(camera).run(host="127.0.0.1", port=args.port, threaded=True, use_reloader=False)
+    create_app(camera, clips=clips).run(host="127.0.0.1", port=args.port, threaded=True, use_reloader=False)

@@ -108,6 +108,27 @@ class FirebaseEventsTests(unittest.TestCase):
 
 
 class DetectorEventPublisherTests(unittest.TestCase):
+    def test_published_incident_triggers_recording_with_same_id_once(self):
+        callback = Mock()
+        adapter = firebase_events.DetectorEventPublisher(publish=Mock(return_value="fall-123"), on_incident=callback)
+        person = types.SimpleNamespace(id=1, fall_alerted=True)
+        adapter.publish_person(person)
+        adapter.publish_person(person)
+        callback.assert_called_once()
+        self.assertEqual(callback.call_args.args[0], "fall-123")
+
+    def test_failed_publication_does_not_create_unlinked_recording(self):
+        callback = Mock()
+        adapter = firebase_events.DetectorEventPublisher(publish=Mock(return_value=None), on_incident=callback)
+        adapter.publish_person(types.SimpleNamespace(id=1, fall_alerted=True))
+        callback.assert_not_called()
+
+    def test_recording_failure_does_not_crash_detector(self):
+        adapter = firebase_events.DetectorEventPublisher(
+            publish=Mock(return_value="fall-123"), on_incident=Mock(side_effect=OSError("full")))
+        with redirect_stdout(StringIO()):
+            adapter.publish_person(types.SimpleNamespace(id=1, fall_alerted=True))
+
     def test_all_alert_types_publish_once_per_person_and_latch(self):
         publish = Mock()
         adapter = firebase_events.DetectorEventPublisher(publish=publish)

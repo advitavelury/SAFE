@@ -23,3 +23,6 @@ build/
 *service-account*.json
 *firebase-adminsdk*.json
 .secrets/
+
+# Private local incident recordings
+backend/recordings/

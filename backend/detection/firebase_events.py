@@ -152,8 +152,9 @@ class DetectorEventPublisher:
         ("wandering_alerted", "wandering", "Movement outside normal hours detected"),
     )
 
-    def __init__(self, publish=None):
+    def __init__(self, publish=None, on_incident=None):
         self.publish = publish or publish_incident
+        self.on_incident = on_incident
         self.active = set()
 
     def publish_person(self, person):
@@ -162,6 +163,12 @@ class DetectorEventPublisher:
             if getattr(person, attribute, False):
                 if key not in self.active:
                     self.active.add(key)
-                    self.publish(event_type=event_type, person_id=person.id, note=note)
+                    event_time = time.monotonic()
+                    incident_id = self.publish(event_type=event_type, person_id=person.id, note=note)
+                    if incident_id and self.on_incident:
+                        try:
+                            self.on_incident(incident_id, event_time)
+                        except Exception as exc:
+                            print(f"[clips] recording could not start ({type(exc).__name__})")
             else:
                 self.active.discard(key)
