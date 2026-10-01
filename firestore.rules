@@ -17,7 +17,63 @@ service cloud.firestore {
 
     match /incidents/{incidentId} {
       allow read: if isApprovedStaff();
-      allow write: if false;
+      allow create, delete: if false;
+      allow update: if isAdmin() && validIncidentReview(incidentId);
+
+      match /reviews/{reviewId} {
+        allow read: if isApprovedStaff();
+        allow create: if isAdmin() && validReviewCreate(incidentId, reviewId);
+        allow update, delete: if false;
+      }
+    }
+
+    function isAdmin() {
+      return isApprovedStaff()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function validTransition(before, after, review) {
+      let oldOutcome = before.get('outcome', before.type == 'false' ? 'false_alarm' : 'unconfirmed');
+      return before.status in ['active', 'acknowledged', 'resolved']
+        && after.outcome in ['unconfirmed', 'confirmed', 'false_alarm']
+        && ((review.action == 'add_note' && review.note.size() > 0
+              && after.status == before.status && after.outcome == oldOutcome)
+          || (review.action == 'acknowledge' && before.status == 'active'
+              && after.status == 'acknowledged' && after.outcome == oldOutcome)
+          || (review.action == 'resolve' && before.status != 'resolved'
+              && after.status == 'resolved' && after.outcome == 'confirmed')
+          || (review.action == 'false_alarm' && before.status != 'resolved'
+              && after.status == 'resolved' && after.outcome == 'false_alarm'));
+    }
+
+    function validIncidentReview(incidentId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let reviewPath = /databases/$(database)/documents/incidents/$(incidentId)/reviews/$(after.lastReviewId);
+      let review = getAfter(reviewPath).data;
+      return after.diff(before).affectedKeys().hasOnly(['status', 'outcome', 'responder', 'updatedAt', 'lastReviewId'])
+        && after.lastReviewId is string && after.lastReviewId.size() > 0
+        && after.lastReviewId != before.get('lastReviewId', '')
+        && !exists(reviewPath)
+        && after.responder == request.auth.uid && after.updatedAt == request.time
+        && review.actorId == request.auth.uid && review.createdAt == request.time
+        && review.status == after.status && review.outcome == after.outcome
+        && validTransition(before, after, review);
+    }
+
+    function validReviewCreate(incidentId, reviewId) {
+      let path = /databases/$(database)/documents/incidents/$(incidentId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      let review = request.resource.data;
+      return review.keys().hasAll(['action', 'note', 'actorId', 'createdAt', 'status', 'outcome'])
+        && review.keys().hasOnly(['action', 'note', 'actorId', 'createdAt', 'status', 'outcome'])
+        && review.note is string && review.note.size() <= 1000
+        && review.actorId == request.auth.uid && review.createdAt == request.time
+        && after.lastReviewId == reviewId && before.get('lastReviewId', '') != reviewId
+        && after.updatedAt == request.time && after.responder == request.auth.uid
+        && review.status == after.status && review.outcome == after.outcome
+        && validTransition(before, after, review);
     }
 
     match /{document=**} {

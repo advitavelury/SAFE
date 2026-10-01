@@ -4,6 +4,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { LogIn, LogOut, ShieldCheck } from "lucide-react";
 import { auth, db, firebaseConfigured, signInStaff } from "../api/firebase.js";
 import { watchStaffAccess } from "../api/staffAccess.js";
+import { StaffSession } from "../api/StaffSession.jsx";
 import { C, FONT } from "../theme.js";
 
 const buttonStyle = { background: C.tealDeep, color: "white" };
@@ -92,7 +93,7 @@ export default function StaffAccess({ children }) {
           </button>
           {logoutError && <p role="alert" className="w-full text-red-700">{logoutError}</p>}
         </header>
-        {children}
+        <StaffSession.Provider value={session}>{children}</StaffSession.Provider>
       </div>
     );
   }

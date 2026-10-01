@@ -1,5 +1,24 @@
 # SAFE Testing Plan and Report
 
+## Admin editing and operator read-only checks - 1 October 2026
+
+- Permissions-only commit: 17 frontend tests passed; production build passed with the existing large-bundle warning.
+- Firestore emulator: 8 permission tests passed against a demo-only project. Tests use real SDK transactions, not just mocked UI permissions.
+- Permissions-only commit: 32 Python tests run, 31 passed and the existing pacing placeholder skipped, including checks for operator camera viewing without start/stop permission and administrator demotion. Unfinished pacing work is excluded from this commit.
+- Permission checks cover approved admin/operator reads, unauthenticated and disabled denial, operator write denial, immutable detector evidence and audit entries, matching atomic review records, forged actor rejection, role demotion and stale resolution rejection.
+- No production accounts were created or given new roles by these tests. Operator visual testing still needs a separate signed-in operator session; operator denial was verified in the emulator and backend tests.
+- Published the rules to `safe-1426e` after approval and read the active ruleset back to confirm it matches the tested source. A clearly labelled TEST ONLY note saved through the live admin dashboard on the existing synthetic incident, with the acting admin UID and server timestamp visible in response history. No real incident assessment was recorded.
+- Earlier sections below describe previous read-only behavior; this section supersedes those permission limitations.
+
+Run frontend checks from `front-end` with `npm test` and `npm run build`.
+Run rules checks from the repository root with Java 17 installed:
+
+```bash
+npx firebase-tools@13.35.1 emulators:exec --only firestore --project demo-safe-roles --config firebase.emulator.json "npm --prefix front-end run test:rules"
+```
+
+Use only the `demo-safe-roles` project for these tests; the emulator clears its test database between cases. Firebase CLI 13 is used here for compatibility with the local Java 17 installation.
+
 ## Local playback verification - 1 October 2026
 
 - Python: 30 tests run, 29 passed, 1 pacing placeholder skipped.

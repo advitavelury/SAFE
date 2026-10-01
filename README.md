@@ -63,7 +63,11 @@ firebase deploy --only firestore:rules --project safe-1426e
 
 Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
 
-Both staff roles currently have read-only incident access. Approval is checked before showing the dashboard. Browser incident creation, acknowledgement, resolution, and role changes are denied by the rules. The team's isolated local demo adapter remains available in source, but is not used for live incident data.
+Approved `admin` accounts can acknowledge incidents, add review notes, resolve them as confirmed or false alarms, and start/stop the shared camera. Approved `operator` accounts can read incidents, watch a running camera, and play available clips, but cannot edit records or control the camera. Draft browser settings are editable only by admins and still do not configure the Python detectors.
+
+Set `users/UID` to `{ active: true, role: "admin" }` or `{ active: true, role: "operator" }` in the Firebase console. Use the Authentication account's exact UID; `active` must be a boolean. Role changes and staff approval are console-only, not editable from the dashboard. Firebase Authentication and a server-confirmed active profile are both required. Camera approval/role changes are rechecked within ten seconds.
+
+Review writes use a Firestore transaction, preserving the original detection type, timestamps and detector note. Every action adds an immutable `incidents/ID/reviews/ID` entry with the acting admin UID and a server timestamp. Rules reject operator writes, missing audit entries, forged actors, changes to detection evidence, incident creation/deletion and edits/deletions of review history. Resolved incidents can receive further notes but cannot be reopened or resolved again. The team's isolated local demo adapter remains available in source, but is not a fallback for live data.
 
 ## Run the dashboard and camera
 
@@ -147,7 +151,7 @@ Tests cover fall/sitting state transitions, event payloads and latches, camera A
 
 ## Limitations and next steps
 
-- Incident response writes, cloud clip uploads, face blur, and SMS/audio delivery are not implemented.
+- Cloud clip uploads, face blur, and SMS/audio delivery are not implemented.
 - Settings are draft browser preferences, not live detector configuration.
 - Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
 - A deployed frontend needs a secured camera backend/reverse proxy; the Vite proxy is for local development only.

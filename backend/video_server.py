@@ -131,7 +131,7 @@ class StaffAuthorizer:
         if cached is None or cached[0] < time.monotonic():
             snapshot = db.collection("users").document(uid).get(timeout=5)
             profile = snapshot.to_dict() if snapshot.exists else {}
-            allowed = profile.get("active") is True and profile.get("role") in ("admin", "operator")
+            allowed = profile.get("role") if profile.get("active") is True and profile.get("role") in ("admin", "operator") else False
             with self.lock:
                 # Re-check staff approval at least every ten seconds.
                 self.profiles = {k: v for k, v in self.profiles.items() if v[0] > time.monotonic()}
@@ -150,8 +150,11 @@ def create_app(camera, authorize=None, clips=None):
         if not header.startswith("Bearer ") or not header[7:].strip():
             return jsonify(error="Staff sign-in required."), 401
         try:
-            if not authorize(header[7:]):
+            role = authorize(header[7:])
+            if not role:
                 return jsonify(error="Staff access not approved."), 403
+            if request.method != "GET" and role != "admin":
+                return jsonify(error="Administrator access required."), 403
         except (auth.InvalidIdTokenError, ValueError):
             return jsonify(error="Sign in again to access the camera."), 401
         except Exception:

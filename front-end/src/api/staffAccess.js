@@ -3,6 +3,10 @@ export function isApprovedStaff(user, profile) {
     && ["admin", "operator"].includes(profile.role));
 }
 
+export function canEditIncidents(user, profile) {
+  return isApprovedStaff(user, profile) && profile.role === 'admin';
+}
+
 // A generation counter prevents a previous account's late callbacks from
 // restoring access after sign-out, account switching, or component teardown.
 export function watchStaffAccess({ watchAuth, watchProfile }, emit) {

@@ -49,13 +49,15 @@ function normaliseIncident(doc) {
   const fallbackDate = toDate(data.tsIso || data.createdAtIso);
 
   return {
-    id: data.incidentId || doc.id,
+    id: doc.id,
     type: ["fall", "prolonged_sitting", "isolation", "wandering", "distress", "false"].includes(data.type) ? data.type : "distress",
     status: data.status || "active",
     zoneId: data.zoneId || data.zone_id || "A",
     ts: toDate(data.ts || data.createdAt, fallbackDate),
     note: data.note,
     responder: data.responder,
+    outcome: data.outcome,
+    updatedAt: data.updatedAt ? toDate(data.updatedAt) : null,
     source: data.source,
     personId: data.personId || data.person_id,
   };

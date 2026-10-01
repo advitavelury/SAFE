@@ -31,7 +31,8 @@ class CameraApiTests(unittest.TestCase):
     def setUp(self):
         self.camera = FakeCamera()
         self.allowed = True
-        self.app = create_app(self.camera, authorize=lambda token: self.allowed and token == "test-token")
+        self.role = "admin"
+        self.app = create_app(self.camera, authorize=lambda token: self.role if self.allowed and token == "test-token" else False)
         self.client = self.app.test_client()
         self.headers = {"Authorization": "Bearer test-token"}
 
@@ -65,6 +66,22 @@ class CameraApiTests(unittest.TestCase):
         client = create_app(self.camera, authorize=unavailable).test_client()
         self.assertEqual(client.post("/api/camera/start", headers=self.headers).status_code, 503)
         self.assertEqual(self.camera.starts, 0)
+
+    def test_operator_can_view_but_cannot_start_or_stop_camera(self):
+        self.role = "operator"
+        self.camera.state = "running"
+        self.camera.jpeg = b"test-jpeg"
+        self.assertEqual(self.client.get("/api/camera/status", headers=self.headers).status_code, 200)
+        self.assertEqual(self.client.get("/api/camera/frame", headers=self.headers).status_code, 200)
+        for action in ("start", "stop"):
+            self.assertEqual(self.client.post(f"/api/camera/{action}", headers=self.headers).status_code, 403)
+        self.assertEqual(self.camera.starts, 0)
+        self.assertEqual(self.camera.state, "running")
+
+    def test_admin_demotion_removes_camera_control(self):
+        self.assertEqual(self.client.post("/api/camera/start", headers=self.headers).status_code, 200)
+        self.role = "operator"
+        self.assertEqual(self.client.post("/api/camera/stop", headers=self.headers).status_code, 403)
 
     def test_stale_frames_and_stopped_feed_are_not_served(self):
         camera = CameraFeed()
