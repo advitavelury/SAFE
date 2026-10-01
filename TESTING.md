@@ -1,5 +1,20 @@
 # SAFE Testing Plan and Report
 
+## Local playback verification - 1 October 2026
+
+- Python: 30 tests run, 29 passed, 1 pacing placeholder skipped.
+- Frontend: 12 existing regression tests passed; production build passed.
+- Added checks for pre/post-alert buffering, wall-time resampling, partial clips,
+  restart availability, duplicate triggers, bounded concurrent recording,
+  encoding failures, storage limits, safe IDs, authenticated access, revocation,
+  and partial-content video responses.
+- The real encoder produced a decodable MP4. A synthetic, clearly labelled
+  15-second clip played in Chrome; pause and Alert seeking to 5 seconds worked.
+  The player was inspected at desktop and 390-pixel mobile width.
+- Only local clips are implemented. Cloud uploads and billing changes were not
+  performed. A real detected incident's recording still needs a consented manual
+  end-to-end test; the synthetic fixture does not validate detector accuracy.
+
 ## Integration verification - 1 October 2026
 
 After pulling the team's detector refactor and new dashboard, the tests were

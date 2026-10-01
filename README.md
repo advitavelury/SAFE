@@ -98,7 +98,41 @@ Each rising detector alert latch publishes one document to `incidents`, containi
 
 Types are `fall`, `prolonged_sitting`, `isolation`, and `wandering`. Older `distress` and `false` records remain displayable. Repeated frames do not publish duplicates while a detector's latch remains set. A new event requires the detector to reset that latch or create a new track.
 
-Firestore contains incident metadata, **not recorded footage**. Frames stay local. Writes have a bounded timeout; failures are logged without stopping detection, but are not durably queued or retried. The dashboard currently reads the latest 50 incidents, so its counts and filters are not a complete historical report.
+Firestore contains incident metadata. Incident recordings stay on the local camera server; no footage is uploaded to Firebase Storage. Writes have a bounded timeout; failures are logged without stopping detection, but are not durably queued or retried. The dashboard currently reads the latest 50 incidents, so its counts and filters are not a complete historical report.
+
+## Incident video playback
+
+Open **Incidents**, select **Review**, then use the video controls under
+**Incident recording**. The Alert button seeks to the alert timestamp.
+
+While the authenticated camera server is running, new published detector alerts
+capture up to 5 seconds before and 10 seconds after the alert. The rolling
+pre-alert buffer is held in memory; only triggered incident clips are saved.
+Clips use annotated H.264 MP4 video at 5 fps with no audio. Slow detector frames
+are repeated to preserve elapsed time rather than speeding up playback.
+
+Recordings are private local files in `backend/recordings/`, excluded from Git.
+Only approved staff can fetch them through the authenticated camera API. The
+camera server must be running on the Mac that holds the clips; another teammate's
+machine will show unavailable for recordings it does not have. Earlier incidents
+have no recoverable footage. A labelled synthetic test clip may accompany the
+TEST ONLY connection-check record for playback verification.
+
+The recorder handles up to four pending clips and caps saved MP4 storage at 1 GB.
+When full it refuses new recordings without deleting old clips. On camera stop,
+available footage is saved as a partial clip. Abrupt process termination can lose
+in-progress footage. Recording failures appear as unavailable/failed playback;
+there is no cloud backup or automatic retry. Clips use the detector's existing
+alert latches, so repeated frames do not create repeated recordings.
+
+**Privacy:** recordings include visible faces; face blurring is not implemented.
+Use consented prototype testing only, restrict access to the machine, and agree
+retention/deletion rules before recording real residents. Stored clips are not
+a substitute for clinical incident review.
+
+Encoding uses [FFmpeg](https://ffmpeg.org/ffmpeg.html) through the
+`imageio-ffmpeg` dependency. Playback bytes are served by the local authenticated
+API, using [Flask conditional file responses](https://flask.palletsprojects.com/en/stable/api/#flask.send_file).
 
 ## Tests
 
@@ -113,7 +147,7 @@ Tests cover fall/sitting state transitions, event payloads and latches, camera A
 
 ## Limitations and next steps
 
-- Incident response writes, clip recording/cloud storage, face blur, and SMS/audio delivery are not implemented.
+- Incident response writes, cloud clip uploads, face blur, and SMS/audio delivery are not implemented.
 - Settings are draft browser preferences, not live detector configuration.
 - Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
 - A deployed frontend needs a secured camera backend/reverse proxy; the Vite proxy is for local development only.
