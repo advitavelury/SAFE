@@ -1,6 +1,6 @@
-export const EVENT_TYPES = { fall: 'Fall detected', prolonged_sitting: 'Prolonged sitting', isolation: 'Isolation' };
+export const EVENT_TYPES = { fall: 'Fall detected', prolonged_sitting: 'Prolonged sitting', isolation: 'Isolation', wandering: 'Unusual-hours movement', distress: 'Distress', false: 'False alarm' };
 export const SEVERITIES = { high: 'High alert', medium: 'Medium alert', low: 'Low alert' };
-export const demoSeverity = type => type === 'fall' ? 'high' : type === 'prolonged_sitting' ? 'medium' : 'low';
+export const demoSeverity = type => type === 'fall' ? 'high' : ['prolonged_sitting', 'distress', 'wandering'].includes(type) ? 'medium' : 'low';
 export const STATUSES = { active: 'Needs review', acknowledged: 'Acknowledged', resolved: 'Resolved' };
 const timestamp = (days, hour, minute) => { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
 export function seedEvents() {

@@ -12,3 +12,8 @@
 .attention-card.medium .eyebrow{color:#854d0e}
 .attention-card.low .eyebrow{color:#166534}
 .incident-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+
+/* Keep the fixed navigation below the authenticated staff header. */
+.admin-app .sidebar{top:64px}
+.attention-card,.incident-detail .eyebrow{min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.admin-app .sidebar{top:auto}}
