@@ -1,0 +1,8 @@
+firebase-admin
+fastapi
+flask
+mediapipe
+numpy
+opencv-python
+ultralytics
+uvicorn
