@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from firebase_admin import firestore
 import cv2
 from .firebase_config import production_db, production_bucket
+from google.api_core.exceptions import NotFound
 from .event_types import EventType, EventStatus
 
 class Event(BaseModel):
@@ -164,6 +165,23 @@ class EventService:
         return events
 
     def delete_event(self, event_id: str):
-        pass
+        doc_ref = self.db.collection("events").document(event_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            return False
+
+        data = doc.to_dict()
+
+        # Delete the stored image first.
+        try:
+            self.bucket.blob(data["image_path"]).delete()
+        except NotFound:
+            # The image is already missing; still remove the event.
+            pass
+
+        # Delete the Firestore record.
+        doc_ref.delete()
+        return True
 
 event_service = EventService(db=production_db, bucket=production_bucket)

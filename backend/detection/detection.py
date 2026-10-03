@@ -167,7 +167,7 @@ class Program(ABC):
 
                 if self.is_video_mode():
                     # waitKey(0) blocks indefinitely, which is what gives us pause
-                    key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND qith 0xFF for bitwise AND only to preserve the lower 8 bits
+                    key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND with 0xFF for bitwise AND only to preserve the lower 8 bits
                     if key == ord('q'):
                         break
                     elif key == ord(' '):

@@ -38,7 +38,14 @@ def setup_routes(streamer: FrameStreamer, program: Program):
 
     @app.delete("/events/{event_id}")
     def delete_event(event_id: str):
-        event_service.delete_event(event_id)
+        deleted = event_service.delete_event(event_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Release this event's active-person state, if present.
+        program.enqueue_event_completion(event_id)
+
         return {"message": "Event deleted"}
 
     return app
