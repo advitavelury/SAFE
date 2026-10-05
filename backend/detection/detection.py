@@ -208,7 +208,8 @@ class Program(ABC):
             else:
                 person.torso_angle = person._angle_from_vertical(shoulder_centre, hip_centre)
         else: 
-            person.torso_len = None                
+            person.torso_len = None      
+            person.torso_angle = None          
 
         person.frame_h = frame_h
         person.frame_w = frame_w
@@ -217,6 +218,8 @@ class Program(ABC):
     def extract_keypoints(self, kp, conf, person: Person):
         # This function updates the keypoints for a person every frame.
         keypoints = person.keypoints
+
+        keypoints[NOSE] = kp[NOSE] if conf[NOSE] > KP_CONF else None
 
         keypoints[L_SHOULDER] = kp[L_SHOULDER] if conf[L_SHOULDER] > KP_CONF else None 
         keypoints[R_SHOULDER] = kp[R_SHOULDER] if conf[R_SHOULDER] > KP_CONF else None 
