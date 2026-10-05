@@ -5,12 +5,16 @@ import time
 from datetime import timedelta
 from abc import ABC, abstractmethod
 import os
+import math
+from threading import Lock, Event
+from queue import Queue, Empty
+
 from .person import Person
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from .frame_context import FrameContext
-from .firebase_events import DetectorEventPublisher
-import math
-from threading import Lock, Event
+from ..event import event_service
+from ..event_types import EventType
+
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
 KP_CONF = 0.5 # confidence level required for a keypoint coordinates to be valid 
@@ -35,10 +39,12 @@ class Program(ABC):
         self.bytetrack_yaml_path = os.path.join(dir, 'bytetrack.yaml')
         self.persons : dict[int, Person] = {}
         self.fall_detector = FallDetector()
-        self.wandering_detector = WanderingDetector([("08:00", "20:00")])
+        self.wandering_detector = WanderingDetector([("08:00", "20:00")]) # pass in normal hours in the form of tuples.
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
         self.sitting_detector = SittingDetector(timedelta(hours=2))
-        self.event_publisher = DetectorEventPublisher()
+        self.completion_queue: Queue[str] = Queue()  # this Queue is used by the API thread too. Passes in events that have been marked completed in the database. 
+        self.outstanding_events: dict[str, int] = {}  # Maps an outstanding event in the current session to its person. 
+
 
     @abstractmethod
     def get_cam(self):
@@ -47,12 +53,40 @@ class Program(ABC):
     @abstractmethod 
     def is_video_mode(self):
         pass 
-    
-    def run(self, stop_event: Event, frame_callback=None, display=True):
+
+    def enqueue_event_completion(self, event_id: str):
+        # This method is called by the API thread. 
+        self.completion_queue.put(event_id)
+
+    def process_event_completions(self):
+        # this method is called by the detection thread and inside the continuous loop. 
+        while True:
+            try:
+                event_id = self.completion_queue.get_nowait() # This will return an event if there has been one recently completed by the API thread.
+            except Empty: # no events to be processed 
+                break 
+
+            try:
+                person_id = self.outstanding_events.get(event_id, None)
+
+                if person_id is None: 
+                    # Nothing to process. This event may have been from another running session. After the system restarded, it is not in the memory of the program anymore to be processed. 
+                    continue
+
+                person = self.persons.get(person_id)
+
+                if person is not None and person.active_event_id == event_id:
+                    person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again. 
+
+            finally:
+                self.completion_queue.task_done()
+
+    def run(self, stop_event: Event):
         cam = self.get_cam()
         model = self.model
         try:
             while not stop_event.is_set():
+                self.process_event_completions() # process any events marked as complete by the API Thread. 
                 ret, frame = cam.read()
 
                 # Exit the loop if the frame was not captured or 'q' is pressed 
@@ -105,12 +139,17 @@ class Program(ABC):
                             frame_time=frame_time, 
                             occupancy=people_in_frame
                         )
-                        fall_frame = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                        wandering_frame = self.wandering_detector.check_detector(ctx=frame_context, person = person)
-                        isolation_frame = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                        sitting_frame = self.sitting_detector.check_detector(ctx=frame_context, person = person)
-                        self.event_publisher.publish_person(person)
-                        annotated_frame = sitting_frame # CHANGE this to another frame for testing other detectors
+                        fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                        wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                        isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                        sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+
+                        event = fall_event or wandering_event or isolation_event or sitting_event
+                        if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event. 
+                            created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
+                            person.active_event_id = created_event.id
+                            self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+                            
                 # Write the fps to the frame.    
                 display_frame = frame if annotated_frame is None else annotated_frame
                 cv2.putText(
@@ -135,7 +174,7 @@ class Program(ABC):
 
                 if self.is_video_mode():
                     # waitKey(0) blocks indefinitely, which is what gives us pause
-                    key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND qith 0xFF for bitwise AND only to preserve the lower 8 bits
+                    key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND with 0xFF for bitwise AND only to preserve the lower 8 bits
                     if key == ord('q'):
                         break
                     elif key == ord(' '):

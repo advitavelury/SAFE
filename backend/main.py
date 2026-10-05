@@ -3,21 +3,34 @@ import os
 from os.path import join 
 from threading import Thread, Lock, Event
 import uvicorn
+import sys
 
-from detection.detection import VideoMode
-from detection.detection import CameraMode
-from streamers import FrameStreamer
-from routes import setup_routes
+if __name__ == "__main__" and not __package__:
+    # Make the directory containing "backend" available for imports.
+    project_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(project_root))
+
+    # Tell Python which package this script belongs to.
+    __package__ = "backend"
+
+from .detection.detection import VideoMode, CameraMode
+from .streamers import FrameStreamer
+from .routes import setup_routes
+
+
+from .detection.detection import VideoMode, CameraMode
+from .streamers import FrameStreamer
+from .routes import setup_routes
 
 
 # This code only runs if you execute the file directly
 if __name__ == "__main__": 
-    video_mode = False
+    video_mode = True
     frame_lock = Lock()
     stop_event = Event()
     if video_mode:
         script_dir = Path(__file__).parent
-        video_footage_path = join(script_dir, "..", "..", "my test footage", "Sitting straight.mp4")
+        video_footage_path = join(script_dir, "..", "..", "my test footage", "Falling backward 1.mp4")
         #video_footage_path = join(script_dir, "detection", "distress detection", "sitting testing footage", "Test_4.avi")  # Replace the last argument in the join method with a different file name to test a different video.
         if not os.path.isfile(video_footage_path):
             raise Exception(f"Testing video footage file path {video_footage_path} is incorrect.")
@@ -34,7 +47,7 @@ if __name__ == "__main__":
 
     streamer = FrameStreamer(program=detector, frame_lock=frame_lock)
 
-    app = setup_routes(streamer=streamer)
+    app = setup_routes(streamer=streamer, program=detector)
     try:
         uvicorn.run(app, host="127.0.0.1", port=8000)
     finally:

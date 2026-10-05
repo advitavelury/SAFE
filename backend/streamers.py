@@ -1,9 +1,8 @@
-from detection.detection import Program
-from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 import cv2
 from time import sleep
 from threading import Lock
+from .detection.detection import Program
 
 class FrameStreamer():
     def __init__(self, program: Program, frame_lock:Lock):

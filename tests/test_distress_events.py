@@ -26,22 +26,25 @@ class DistressSittingTests(unittest.TestCase):
         self.detector.manage_person_posture("not sitting", self.person, 1.0 + SITTING_BREAK_SECONDS / 2)
         self.detector.manage_person_posture("sitting", self.person, 2.0)
         self.assertEqual(0.0, self.person.sitting_since)
-        self.assertIsNone(self.person.non_sitting_since)
 
-    def test_sitting_timer_and_latch_reset_after_sustained_non_sitting(self):
-        self.detector.manage_person_posture("sitting", self.person, 0.0)
-        self.person.sitting_alerted = True
-        self.detector.manage_person_posture("not sitting", self.person, 11.0)
-        self.detector.manage_person_posture("not sitting", self.person, 11.0 + SITTING_BREAK_SECONDS)
+    def test_sitting_timer_resets_after_enough_non_sitting_observations(self):
+        self.person.manage_person_posture("sitting", video_time=0.0)
+
+        for time_value in range(1, distress.SITTING_BREAK_OBSERVATIONS + 1):
+            self.person.manage_person_posture("standing", video_time=float(time_value))
+
         self.assertIsNone(self.person.sitting_since)
-        self.assertFalse(self.person.sitting_alerted)
-        self.assertFalse(self.detector.alert_sitting_event(self.person, 99.0))
+        self.assertEqual(0.0, self.person.seconds_seated(video_time=99.0))
 
-    def test_box_colours_follow_warning_and_alert_thresholds(self):
-        self.detector.manage_person_posture("sitting", self.person, 0.0)
-        self.assertIsNone(self.detector.sitting_box_color(self.person, 0.0))
-        self.assertEqual(BOX_COLOR_WARNING, self.detector.sitting_box_color(self.person, 5.0))
-        self.assertEqual(BOX_COLOR_ALERT, self.detector.sitting_box_color(self.person, 10.0))
+    def test_acknowledge_clears_open_alert_latches(self):
+        self.person.alerted = True
+
+        self.assertEqual(distress.BOX_COLOUR_FALL_ALERT, self.person.box_colour())
+
+        self.person.acknowledge()
+
+        self.assertFalse(self.person.alerted)
+        self.assertEqual(distress.BOX_COLOUR_NORMAL, self.person.box_colour())
 
 
 class DistressPacingTests(unittest.TestCase):

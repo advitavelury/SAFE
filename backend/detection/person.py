@@ -10,15 +10,6 @@ L_HIP, R_HIP = 11, 12
 L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
-class WanderingDetectorMetrics():
-    def __init__(self):
-        self.wandering_alerted = False # if staff has been alerted about the person wandering.
-        super().__init__()
-
-class IsolationDetectorMetrics():
-    def __init__(self):
-        self.isolation_alerted = False # if staff has been alerted about the person being in isolation for too long.
-        super().__init__()
 
 class SittingDetectorMetrics():
     def __init__(self):
@@ -29,7 +20,6 @@ class SittingDetectorMetrics():
                                             # lying down) for a different detector.
         self.sitting_since = None          # frame_time the current sitting streak began
         self.non_sitting_since = None      # frame_time the current run of non-sitting reads began, to break the streak
-        self.sitting_alerted = False       # if staff has been alerted about prolonged sitting
         super().__init__()
 
 class FallDetectorMetrics():
@@ -38,7 +28,6 @@ class FallDetectorMetrics():
         self.current_position = None
         self.down_since = None  # monotonic time DOWN first observed.
         self.upright_since = None  # monotonic time upright first re-observed.
-        self.fall_alerted = False  # if staff has been alerted about the person fall.
         self.ratios_shoulder = deque(maxlen=30) # box_h/shoulder_w.
         self.ratios_box = deque(maxlen=30)  # box_h/box_w.
         self.torso_len = None # The length of the persons torso in the frame.
@@ -93,11 +82,12 @@ class FallDetectorMetrics():
             elif 0.8 * base < box_ratio <  1.20 * base: # If the ratio abnormally low or high, it must mean the person is not standing anymore.
                 self.ratios_box.append(box_ratio)
 
-class Person(FallDetectorMetrics, WanderingDetectorMetrics, IsolationDetectorMetrics, SittingDetectorMetrics):
+class Person(FallDetectorMetrics, SittingDetectorMetrics):
     def __init__(self, id):
         self.id = id
         self.keypoints = {} # stores keypoints where the key is the COCO index and value is the tensor object.
         self.box_coords = None # Box coordinates are in the form (x1, y1, x2, y2). Defines the top left and bottom right corner of the box surrounding the person.
+        self.active_event_id = None 
         super().__init__()
 
     def box_midpoint(self):

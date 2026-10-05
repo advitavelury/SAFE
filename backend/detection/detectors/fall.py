@@ -1,6 +1,7 @@
 from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label
+from ...event_types import EventType
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
@@ -67,12 +68,12 @@ class FallDetector():
             self.person_posture[person_id] = posture
         return self.person_posture[person_id]
 
-    def check_detector(self, ctx: FrameContext, person: Person):
+    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
         frame = ctx.frame
         frame_time = ctx.frame_time
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
-            return frame  
+            return None  
         position = self.manage_person_posture(posture, person=person, frame_time=frame_time)
         box_midpoint = person.box_midpoint()
         label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
@@ -81,9 +82,9 @@ class FallDetector():
         if alert:
             draw_label(frame, f"Person {person.id} had a fall", (30, 40),
                        LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
-            print(f"Person {person.id} had a fall =========================================")
-            person.fall_alerted = True
-        return frame
+            print(f"Person {person.id} had a fall")
+            return EventType.FALL
+        return None
 
 
     def classify_posture(self, person: Person,
