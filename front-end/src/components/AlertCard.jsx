@@ -19,10 +19,10 @@ export default function AlertCard({ incident, onSelect, compact = false }) {
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[11px]" style={{ color: C.inkSoft }}>
+        <span className="shrink-0 text-[11px]" style={{ color: C.inkSoft }}>
           {fmtTime(incident.ts)} {relDay(incident.ts)}
         </span>
-        <span className="text-[11px] font-semibold tabular-nums" style={{ color: C.inkSoft }}>
+        <span className="min-w-0 break-all text-right text-[11px] font-semibold tabular-nums" style={{ color: C.inkSoft }}>
           {incident.id}
         </span>
       </div>

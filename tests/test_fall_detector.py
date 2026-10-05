@@ -1,5 +1,4 @@
 import sys
-import types
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -7,23 +6,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DETECTION_DIR = PROJECT_ROOT / "backend" / "detection"
-sys.path.insert(0, str(DETECTION_DIR))
-
-# The fall detector imports cv2 for drawing in the live demo. These unit tests
-# only exercise the state logic, so a tiny stub keeps the tests lightweight.
-sys.modules.setdefault(
-    "cv2",
-    types.SimpleNamespace(
-        FONT_HERSHEY_SIMPLEX=0,
-        LINE_AA=0,
-        putText=lambda *args, **kwargs: None,
-    ),
-)
-
-from person import Person
-from detectors.fall import DOWN_HOLD_SECONDS, RECOVERY_GRACE_SECONDS, FallDetector
-
+sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+from detection.person import Person
+from detection.detectors.fall import DOWN_HOLD_SECONDS, RECOVERY_GRACE_SECONDS, FallDetector
 
 class FallDetectorTests(unittest.TestCase):
     def setUp(self):

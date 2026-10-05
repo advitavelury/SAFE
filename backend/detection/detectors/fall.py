@@ -1,9 +1,20 @@
-from person import Person
-from frame_context import FrameContext
-import cv2
+from ..person import Person
+from ..frame_context import FrameContext
+from ..overlay import draw_label
+from ...event_types import EventType
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
+
+# Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
+# below the box midpoint so it doesn't overlap the other detectors' labels,
+# which all anchor off the same point (person.box_midpoint()) and use their
+# own offset - see wandering.py, isolation.py, sitting.py.
+LABEL_FONT_SCALE = 0.5
+LABEL_THICKNESS = 1
+LABEL_Y_OFFSET = 0
+LABEL_COLOR = (255, 0, 0)   # BGR: blue - Fall's colour, distinct from the other detectors
+ALERT_COLOR = (0, 0, 255)   # BGR: red
 
 # COCO keypoint indices
 NOSE = 0
@@ -54,41 +65,25 @@ class FallDetector():
 
         return self.person_posture[person_id]
 
-    def check_detector(self, ctx: FrameContext, person: Person):
+    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
         frame = ctx.frame
         frame_time = ctx.frame_time
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
-            return frame  
+            return None  
         position = self.manage_person_posture(posture, person=person, frame_time=frame_time)
         print(f"The posture I classified is {posture}, the posture I am appointing is {position}")
         print(f"========================================")
         box_midpoint = person.box_midpoint()
-        cv2.putText(
-            frame, 
-            position, 
-            box_midpoint, # Coordinates (X, Y)
-            cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-            1,                          # Font scale
-            (255, 0, 0),                # Color (BGR format: Blue)
-            2,                          # Line thickness
-            cv2.LINE_AA
-        )
+        label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
+        draw_label(frame, position, label_point, LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
         alert = self.alert_fall_event(person=person, frame_time=frame_time)
         if alert:
-            cv2.putText(
-                frame, 
-                f"Person {person.id} had a fall", 
-                (30, 40),                   # Coordinates (X, Y)
-                cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                1,                          # Font scale
-                (0, 0, 255),                # Color (BGR format: RED)
-                2,                          # Line thickness
-                cv2.LINE_AA
-            )
-            print(f"Person {person.id} had a fall =========================================")
-            person.fall_alerted = True
-        return frame
+            draw_label(frame, f"Person {person.id} had a fall", (30, 40),
+                       LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
+            print(f"Person {person.id} had a fall")
+            return EventType.FALL
+        return None
 
 
     def classify_posture(self, person: Person,
