@@ -90,7 +90,7 @@ class Program(ABC):
                 ret, frame = cam.read()
 
                 # Exit the loop if the frame was not captured or 'q' is pressed 
-                if not ret or (display and cv2.waitKey(1) == ord('q')):
+                if not ret or (cv2.waitKey(1) == ord('q')):
                     break
 
                 with self.frame_lock: # variables are shared by the FrameStreamer method
@@ -110,7 +110,7 @@ class Program(ABC):
                                     classes = [0], # only track class 0 = person,
                                     device = 'cpu', # forces CPU regardless of GPU availability,
                                     tracker=self.bytetrack_yaml_path,
-                                    verbose=False)
+                                    )
                 # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame, 
                 # we can access the result by doing result[0]. 
                 # The .cpu() call moves the tensor from GPU memory to CPU memory.
@@ -164,12 +164,7 @@ class Program(ABC):
                     )
                 with self.frame_lock: # variable is shared by the FrameStreamer method
                     self.current_annotated_frame = display_frame.copy()
-                if frame_callback is not None:
-                    frame_callback(display_frame)
-                if not display:
-                    if self.is_video_mode():
-                        stop_event.wait(1 / max(self.fps, 1))
-                    continue
+
                 cv2.imshow('frame', display_frame)
 
                 if self.is_video_mode():
@@ -184,8 +179,7 @@ class Program(ABC):
         finally: # runs after an except or try block
             # Release the capture objects 
             cam.release()
-            if display:
-                cv2.destroyAllWindows()
+            cv2.destroyAllWindows()
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
         self.extract_keypoints(kp, conf, person)
@@ -268,9 +262,9 @@ class VideoMode(Program):
         return (self.frame_index/self.fps) # For video files
 
 class CameraMode(Program):
-    def __init__(self, frame_lock:Lock, camera_index=0):
+    def __init__(self, frame_lock:Lock):
         super().__init__(frame_lock=frame_lock)
-        self.cam = cv2.VideoCapture(camera_index)
+        self.cam = cv2.VideoCapture(0)
         self.fps = 0 
         self.prev_time = 0 
         self.new_time = 0
