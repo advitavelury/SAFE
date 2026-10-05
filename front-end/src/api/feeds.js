@@ -1,23 +1,105 @@
 import { useEffect, useMemo, useState } from "react";
-import { DETECTIONS, INCIDENTS } from "../data/mock.js";
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
+import { DETECTIONS } from "../data/mock.js";
 import { usePrefersReducedMotion } from "../hooks/index.js";
+import {
+  db,
+  firebaseConfigured,
+  INCIDENTS_COLLECTION,
+} from "./firebase.js";
 
 /*
-  This file is the seam between the UI and the backend.
-  Nothing else in src/ knows where data comes from.
+  Incident records come from Firestore; camera detections are still simulated.
 
   To go live, keep the return shapes identical:
 
-  useIncidentFeed()  -> [{ id, type, status, zoneId, ts: Date, note?, responder? }]
+  useIncidentFeed()  -> { incidents: [{ id, type, status, zoneId, ts }], status, retry }
   useDetectionFeed() -> [{ id, conf, state, pose, box: { x, y, w, h } }]   // box in %
 
-  Suggested real implementation:
-    const ws = new WebSocket(import.meta.env.VITE_SAFE_WS_URL)
-    ws.onmessage = (e) => setDetections(JSON.parse(e.data).detections)
+  Firestore incident shape:
+    incidents/{id} -> {
+      type: "fall" | "distress" | "false",
+      status: "active" | "resolved",
+      zoneId: "A",
+      personId: "1",
+      note: "Fall detected",
+      ts: Firestore Timestamp,
+      tsIso: ISO string fallback
+    }
 */
 
+function toDate(value, fallback = new Date()) {
+  if (!value) return fallback;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+  }
+  return fallback;
+}
+
+function normaliseIncident(doc) {
+  const data = doc.data();
+  const fallbackDate = toDate(data.tsIso || data.createdAtIso);
+
+  return {
+    id: doc.id,
+    type: ["fall", "prolonged_sitting", "isolation", "wandering", "distress", "false"].includes(data.type) ? data.type : "distress",
+    status: data.status || "active",
+    zoneId: data.zoneId || data.zone_id || "A",
+    ts: toDate(data.ts || data.createdAt, fallbackDate),
+    note: data.note,
+    responder: data.responder,
+    outcome: data.outcome,
+    updatedAt: data.updatedAt ? toDate(data.updatedAt) : null,
+    source: data.source,
+    personId: data.personId || data.person_id,
+  };
+}
+
 export function useIncidentFeed() {
-  return INCIDENTS;
+  const [feed, setFeed] = useState({ incidents: [], status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFeed({ incidents: [], status: "loading" });
+
+    if (!firebaseConfigured || !db) {
+      setFeed({ incidents: [], status: "error" });
+      return undefined;
+    }
+
+    const incidentsQuery = query(
+      collection(db, INCIDENTS_COLLECTION),
+      orderBy("createdAt", "desc"),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(incidentsQuery, { includeMetadataChanges: true },
+      (snapshot) => {
+        if (cancelled) return;
+        setFeed(snapshot.metadata.fromCache
+          ? { incidents: [], status: "connecting" }
+          : { incidents: snapshot.docs.map(normaliseIncident), status: "ready" });
+      },
+      () => {
+        if (!cancelled) setFeed({ incidents: [], status: "error" });
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [attempt]);
+
+  return { ...feed, retry: () => setAttempt((n) => n + 1) };
 }
 
 export function useDetectionFeed(zoneId, enabled = true) {

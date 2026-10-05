@@ -1,6 +1,66 @@
 # SAFE Testing Plan and Report
 
-This document records the current testing strategy, test plan, and test report for SAFE.
+## Admin editing and operator read-only checks - 1 October 2026
+
+- Permissions-only commit: 17 frontend tests passed; production build passed with the existing large-bundle warning.
+- Firestore emulator: 8 permission tests passed against a demo-only project. Tests use real SDK transactions, not just mocked UI permissions.
+- Permissions-only commit: 32 Python tests run, 31 passed and the existing pacing placeholder skipped, including checks for operator camera viewing without start/stop permission and administrator demotion. Unfinished pacing work is excluded from this commit.
+- Permission checks cover approved admin/operator reads, unauthenticated and disabled denial, operator write denial, immutable detector evidence and audit entries, matching atomic review records, forged actor rejection, role demotion and stale resolution rejection.
+- No production accounts were created or given new roles by these tests. Operator visual testing still needs a separate signed-in operator session; operator denial was verified in the emulator and backend tests.
+- Published the rules to `safe-1426e` after approval and read the active ruleset back to confirm it matches the tested source. A clearly labelled TEST ONLY note saved through the live admin dashboard on the existing synthetic incident, with the acting admin UID and server timestamp visible in response history. No real incident assessment was recorded.
+- Earlier sections below describe previous read-only behavior; this section supersedes those permission limitations.
+
+Run frontend checks from `front-end` with `npm test` and `npm run build`.
+Run rules checks from the repository root with Java 17 installed:
+
+```bash
+npx firebase-tools@13.35.1 emulators:exec --only firestore --project demo-safe-roles --config firebase.emulator.json "npm --prefix front-end run test:rules"
+```
+
+Use only the `demo-safe-roles` project for these tests; the emulator clears its test database between cases. Firebase CLI 13 is used here for compatibility with the local Java 17 installation.
+
+## Local playback verification - 1 October 2026
+
+- Python: 30 tests run, 29 passed, 1 pacing placeholder skipped.
+- Frontend: 12 existing regression tests passed; production build passed.
+- Added checks for pre/post-alert buffering, wall-time resampling, partial clips,
+  restart availability, duplicate triggers, bounded concurrent recording,
+  encoding failures, storage limits, safe IDs, authenticated access, revocation,
+  and partial-content video responses.
+- The real encoder produced a decodable MP4. A synthetic, clearly labelled
+  15-second clip played in Chrome; pause and Alert seeking to 5 seconds worked.
+  The player was inspected at desktop and 390-pixel mobile width.
+- Only local clips are implemented. Cloud uploads and billing changes were not
+  performed. A real detected incident's recording still needs a consented manual
+  end-to-end test; the synthetic fixture does not validate detector accuracy.
+
+## Integration verification - 1 October 2026
+
+After pulling the team's detector refactor and new dashboard, the tests were
+migrated to the shared `detection` package. Current results:
+
+- Python: 18 tests run, 17 passed, 1 pacing placeholder skipped.
+- Frontend: 12 tests passed, including the team's demo event-transition tests.
+- React production build passed, with a bundle-size warning.
+- Approved staff login, Firestore test-incident display, and a 960 x 540 live
+  MacBook camera image with YOLO overlays were verified in Chrome.
+- The cloud test record is explicitly labelled TEST ONLY. This is connection
+  evidence, not evidence of real fall-detection accuracy.
+
+Coverage now includes detector state timing, alert-latch deduplication,
+Firestore payloads/write failures, camera endpoint access, staff revocation and
+session races, incident adapters, and local calendar dates. Live incident
+acknowledgement/resolution remains disabled; event-transition tests cover the
+isolated demo data model only. No clinical or real-world accuracy claim is made.
+
+Run the current commands in README.md to reproduce the automated checks.
+
+## Historical test plan and report
+
+The sections below retain the earlier plan and report. References to the old
+standalone distress script, observation-count reset logic, and keyboard
+acknowledgement are historical; the current sitting detector uses a sustained
+non-sitting duration. Current results and scope above supersede those claims.
 
 SAFE is a student project prototype for camera-observable distress-event detection in aged-care environments. Testing focuses on verifying detector logic, reducing false alerts, and documenting what is currently working versus what still needs validation.
 

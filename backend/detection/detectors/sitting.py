@@ -93,6 +93,24 @@ KNEE_BENT_MIN, KNEE_BENT_MAX = 45.0, 140.0   # hip-knee-ankle angle
 # from the knee for its position to be meaningful, not noise.
 FEMUR_TIBIA_SEATED_MAX = 0.49
 
+# --- view-dependent tests ----------------------------------------------------
+
+# Shoulder width / torso length at or above this means the person is facing
+# the camera. Person.get_frontality_ratio() returns None below 0.5, so None
+# is treated as a side-on view.
+FRONTAL_MIN_RATIO = 0.60
+
+# FRONTAL view: the thigh points at the camera, so it foreshortens and the
+# hip->knee drop shrinks. These tests use the person's visible height
+# (shoulder centre -> box bottom) as the scale unit and are vote-based.
+FRONTAL_HIP_KNEE_HEIGHT_MAX = 0.24    # hip->knee drop / person height
+FRONTAL_FEMUR_TIBIA_MAX = 0.49        # hip->knee drop / hip->ankle drop
+FRONTAL_HIP_ANKLE_HEIGHT_MAX = 0.55   # hip->ankle drop / person height
+
+# SIDE view: the thigh lies in the image plane, so its angle from vertical
+# reads directly - ~0 deg standing, ~90 deg seated with the thigh level.
+SIDE_KNEE_HIP_ANGLE_MIN = 60.0
+
 # Torso gate: sitting has to EXCLUDE lying down, which shares the same leg
 # geometry (knee near hip height) but has a horizontal, not vertical, torso.
 TORSO_FOLDED_MAX = 75.0
@@ -192,6 +210,66 @@ class SittingDetector():
 
         return True
 
+    def _frontal_posture(self, person: Person, shoulder_centre, hip_centre):
+        """Vote-based sitting test for a person facing the camera.
+        Returns "sitting", "not sitting", or None (knees unreadable)."""
+        left_knee = person._point(L_KNEE)
+        right_knee = person._point(R_KNEE)
+        if left_knee is None or right_knee is None:
+            return None
+
+        _, _, _, y2 = person.box_coords
+        person_height = y2 - shoulder_centre[1]
+        if person_height <= 0:
+            return None
+
+        sitting_checks = 0
+        sitting_votes = 0
+        hip_ankle_height_ratio = None
+        femur_tibia_ratio = None
+
+        # 1. Knees close to hip height relative to the person's height.
+        sitting_checks += 1
+        hip_knee_height = max(left_knee[1], right_knee[1]) - hip_centre[1]
+        hip_knee_height_ratio = hip_knee_height / person_height
+        if hip_knee_height_ratio < FRONTAL_HIP_KNEE_HEIGHT_MAX:
+            sitting_votes += 1
+
+        # 2. Most of the leg's downward extent comes from the shin, and the
+        #    feet sit relatively close below the hips.
+        left_ankle = person._point(L_ANKLE)
+        right_ankle = person._point(R_ANKLE)
+        if left_ankle is not None and right_ankle is not None:
+            hip_ankle_height = max(left_ankle[1], right_ankle[1]) - hip_centre[1]
+            if hip_ankle_height > 0:
+                hip_ankle_height_ratio = hip_ankle_height / person_height
+                femur_tibia_ratio = hip_knee_height / hip_ankle_height
+                sitting_checks += 1
+                if (femur_tibia_ratio < FRONTAL_FEMUR_TIBIA_MAX
+                        and hip_ankle_height_ratio < FRONTAL_HIP_ANKLE_HEIGHT_MAX):
+                    sitting_votes += 1
+
+        print(f"Person {person.id} frontal sitting: hip-knee height ratio "
+              f"{hip_knee_height_ratio:.4f}, hip-ankle height ratio "
+              f"{hip_ankle_height_ratio or 0.0:.4f}, femur-tibia ratio "
+              f"{femur_tibia_ratio or 0.0:.4f}, votes {sitting_votes}/{sitting_checks}")
+
+        if sitting_votes / sitting_checks > 0.5:
+            return "sitting"
+        return "not sitting"
+
+    def _side_thigh_looks_seated(self, person: Person) -> bool:
+        """Side-on test: is the thigh (hip -> knee) far enough from vertical?
+        Uses the hip/knee centres when both sides are readable, otherwise
+        whichever single side is - side-on, the far leg is often occluded."""
+        hip = person._midpoint(L_HIP, R_HIP) or person._point(L_HIP) or person._point(R_HIP)
+        knee = person._midpoint(L_KNEE, R_KNEE) or person._point(L_KNEE) or person._point(R_KNEE)
+        if hip is None or knee is None:
+            return False
+        knee_hip_angle = person._angle_from_vertical(hip, knee)
+        print(f"Person {person.id} side sitting: knee-hip angle {knee_hip_angle:.1f} deg")
+        return knee_hip_angle > SIDE_KNEE_HIP_ANGLE_MIN
+
     def classify_posture(self, person: Person):
         """Returns "sitting", "not sitting", or None.
 
@@ -229,6 +307,16 @@ class SittingDetector():
             print(f"Person {person.id} sitting reject: box aspect "
                   f"{box_h / box_w:.2f} (lying)")
             return "not sitting"
+
+        # ---- which way is the person facing? ----
+        frontality_ratio = person.get_frontality_ratio()
+        if frontality_ratio is not None and frontality_ratio >= FRONTAL_MIN_RATIO:
+            return self._frontal_posture(person, shoulder_centre, hip_centre)
+
+        # Side-on (or three-quarter): try the thigh angle first; if it isn't
+        # decisive, fall through to the per-leg tests below.
+        if self._side_thigh_looks_seated(person):
+            return "sitting"
 
         left = self._leg_looks_seated(person, shoulder_centre, L_HIP, L_KNEE,
                                       L_ANKLE, torso_len)

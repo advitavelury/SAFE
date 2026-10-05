@@ -1,7 +1,19 @@
 import { useState } from 'react';
+import { useIncidentFeed } from './feeds.js';
+import { toAdminEvent } from './incidentAdapter.js';
+import { useStaffSession } from './StaffSession.jsx';
+import { canEditIncidents } from './staffAccess.js';
 import { seedEvents, transitionEvent, demoSeverity } from '../data/events.js';
 const KEY = 'safe-admin-demo-v1';
 export function useAdminEvents() {
+  const { incidents, status, retry } = useIncidentFeed();
+  const session = useStaffSession();
+  return { events: incidents.map(toAdminEvent), status, retry,
+    canUpdate: canEditIncidents(session?.user, session?.profile) };
+}
+
+// Retained for isolated UI prototyping, never used as a fallback for live data.
+export function useDemoAdminEvents() {
   const [events, setEvents] = useState(() => {
     try {
       const value = JSON.parse(localStorage.getItem(KEY));
