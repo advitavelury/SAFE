@@ -1,6 +1,5 @@
 
 import cv2
-import numpy as np
 from ultralytics import YOLO
 import time
 from datetime import timedelta
@@ -9,6 +8,7 @@ import os
 import math
 from threading import Lock, Event
 from queue import Queue, Empty
+from concurrent.futures import ThreadPoolExecutor
 
 from .person import Person
 from .anonymise_frame import anonymise_event
@@ -45,6 +45,8 @@ class Program(ABC):
         self.sitting_detector = SittingDetector(timedelta(hours=2))
         self.completion_queue: Queue[str] = Queue()  # this Queue is used by the API thread too. Passes in events that have been marked completed in the database. 
         self.outstanding_events: dict[str, int] = {}  # Maps an outstanding event in the current session to its person. 
+        self.event_executor = ThreadPoolExecutor(max_workers=2)  # Used when creating an event in the detection loop
+        self.pending_events = {}  # person_id -> Future
 
 
     @abstractmethod
@@ -68,7 +70,7 @@ class Program(ABC):
                 break 
 
             try:
-                person_id = self.outstanding_events.get(event_id, None)
+                person_id = self.outstanding_events.pop(event_id, None)
 
                 if person_id is None: 
                     # Nothing to process. This event may have been from another running session. After the system restarded, it is not in the memory of the program anymore to be processed. 
@@ -82,11 +84,30 @@ class Program(ABC):
             finally:
                 self.completion_queue.task_done()
 
+    def process_pending_events(self):
+        for person_id, future in list(self.pending_events.items()):
+            if not future.done():
+                continue
+
+            del self.pending_events[person_id]
+
+            try:
+                created_event = future.result()  # Already done, so won't wait.
+            except Exception as exc:
+                print(f"Event creation failed for {person_id}: {exc}")
+                continue
+        
+            self.persons[person_id].active_event_id = created_event.id
+            self.outstanding_events[created_event.id] = person_id # Currently the event is outstanding (hasn't been cleared) but 
+            # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+        
+
     def run(self, stop_event: Event):
         cam = self.get_cam()
         model = self.model
         try:
             while not stop_event.is_set():
+                self.process_pending_events() # process any events that may have finished being created. 
                 self.process_event_completions() # process any events marked as complete by the API Thread. 
                 ret, frame = cam.read()
 
@@ -147,13 +168,15 @@ class Program(ABC):
                         sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
 
                         event = fall_event or wandering_event or isolation_event or sitting_event
-                        if event:
-                            print(f"An EVENT HAS OCCURED AND person active event id is {person.active_event_id}")
-                        if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event. 
+                        if (event and person.active_event_id is None 
+                            and person_id not in self.pending_events): # if there is an event raised by the detectors and the person doesn't have any active/pending events then raise an event. 
                             anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
-                            created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=anonymised_frame)
-                            person.active_event_id = created_event.id
-                            self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+                            self.pending_events[person_id] = self.event_executor.submit(
+                                                                event_service.create_event,
+                                                                person_id=person_id,
+                                                                event_type=event,
+                                                                frame=anonymised_frame,
+                                                            )
                             
                 # Write the fps to the frame.    
                 display_frame = frame if annotated_frame is None else annotated_frame
@@ -185,6 +208,7 @@ class Program(ABC):
             # Release the capture objects 
             cam.release()
             cv2.destroyAllWindows()
+            self.event_executor.shutdown(wait=True)
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
         self.extract_keypoints(kp, conf, person)
