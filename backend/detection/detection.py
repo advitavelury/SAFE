@@ -11,10 +11,10 @@ from threading import Lock, Event
 from queue import Queue, Empty
 
 from .person import Person
+from .anonymise_frame import anonymise_event
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from .frame_context import FrameContext
 from ..event import event_service
-from ..event_types import EventType
 
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
@@ -119,6 +119,7 @@ class Program(ABC):
                     boxes = results[0].boxes.xyxy.numpy().astype(int)
                     ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
                     all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+                    all_conf = results[0].keypoints.conf # list of keypoints confidence percentage depending on the amount of people in the frame
                     people_in_frame = len(ids)
                     annotated_frame = results[0].plot(
                         boxes=True,      # draw bounding boxes
@@ -133,7 +134,7 @@ class Program(ABC):
                             self.persons[person_id] = person
                         box = boxes[i]
                         kp = all_kp[i]  # keypoints of a person
-                        confidence = results[0].keypoints.conf[i]
+                        confidence = all_conf[i]
                         self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
                         frame_context = FrameContext(
                             frame=annotated_frame, 
@@ -149,7 +150,7 @@ class Program(ABC):
                         if event:
                             print(f"An EVENT HAS OCCURED AND person active event id is {person.active_event_id}")
                         if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event. 
-                            anonymised_frame = self.anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, person_index=i)
+                            anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
                             created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=anonymised_frame)
                             person.active_event_id = created_event.id
                             self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
@@ -231,93 +232,7 @@ class Program(ABC):
         keypoints[L_ANKLE] = kp[L_ANKLE] if conf[L_ANKLE] > KP_CONF else None 
         keypoints[R_ANKLE] = kp[R_ANKLE] if conf[R_ANKLE] > KP_CONF else None 
 
-        return None
-
-    def anonymise_event(self, frame, all_keypoints, boxes, person_index):
-        poi_bb = boxes[person_index]  # poi_bb is the person of interest bounding box
-        poi_kp = all_keypoints[person_index] # poi_kp is the person of interest keypoints 
-        self.blur_person(frame=frame, bounding_box=poi_bb, keypoints=poi_kp)
-        x1, y1, x2, y2 = poi_bb
-        for i in range(len(boxes)):  # This loop checks if there are any other people in the bounding box of the person of interest.
-            if i != person_index:
-                temp_x1, temp_y1, temp_x2, temp_y2 = boxes[i]
-                overlaps = (
-                    temp_x1 < x2
-                    and temp_x2 > x1
-                    and temp_y1 < y2
-                    and temp_y2 > y1
-                )
-                if overlaps:
-                    self.blur_person(frame=frame, bounding_box=boxes[i], keypoints=all_keypoints[i])
-
-        return frame[y1:y2, x1:x2].copy()
-
-    def blur_person(self, frame, bounding_box, keypoints):
-        # COCO keypoint indices
-        NOSE = 0
-        LEFT_EYE,RIGHT_EYE= 1 , 2
-        L_SHOULDER, R_SHOULDER = 5, 6
-
-        x1, y1, x2, y2 = bounding_box
-        bbox_width, bbox_height = (abs(x2-x1), abs(y2-y1))
-        # Check for facial keypoints such as eyes or nose.
-        nose_kp = keypoints[NOSE]
-        l_eye_kp = keypoints[LEFT_EYE]
-        r_eye_kp = keypoints[RIGHT_EYE] 
-        l_shoulder_kp = keypoints[L_SHOULDER] 
-        r_shoulder_kp = keypoints[R_SHOULDER]
-        shoulder_y = None 
-        face_centre = None 
-        if l_shoulder_kp is not None and r_shoulder_kp is not None:
-            shoulder_y = max(keypoints[L_SHOULDER][1], keypoints[R_SHOULDER][1]) 
-
-        if l_eye_kp is not None and r_eye_kp is not None:
-            eye_distance = np.linalg.norm(
-                np.array(r_eye_kp[:2]) - np.array(l_eye_kp[:2])
-            )
-            face_width = int(3.5 * eye_distance)
-            face_height = int(4 * eye_distance)
-            face_centre = (int((l_eye_kp[0] + r_eye_kp[0]) / 2.0), int((l_eye_kp[1] + r_eye_kp[1]) / 2.0)) 
-        else: 
-            face_width = (x2-x1)//2
-            face_bottom = shoulder_y if shoulder_y is not None else y2
-            face_height = abs(y1 - face_bottom)
-
-        face_centre = face_centre or nose_kp
-        if face_width and face_height and face_centre:  
-            min_face_width = int(0.30 * bbox_width)
-            min_face_height = int(0.20 * bbox_height)
-            face_width = max(min_face_width, face_width)
-            face_height = max(min_face_height, face_height)
-            face_x1 = max(face_centre[0] - face_width//2, x1)
-            face_x2 = min(face_centre[0] + face_width//2, x2)
-            face_y1 = max(face_centre[1] - face_height//2, y1)
-            face_y2 = min(face_centre[1] + face_height//2, y2)        
-        else:
-            face_bottom = shoulder_y if shoulder_y else y2
-            face_x1 = x1
-            face_x2 = x2
-            face_y1 = y1
-            face_y2 = face_bottom
-
-        if face_x2 <= face_x1 or face_y2 <= face_y1: # This ensures we don't apply the Gaussian blur to an empty face region. 
-            return
-        
-        face_width = abs(face_x2-face_x1)
-        kernel_size = max(3, int(face_width * 0.5))
-        # Gaussian kernel must be odd
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        sigma = face_width*0.3
-        face_region = frame[face_y1:face_y2, face_x1:face_x2]
-        blurred_face = cv2.GaussianBlur(
-            src=face_region, 
-            ksize=(kernel_size, kernel_size),
-            sigmaX=sigma, 
-            sigmaY=sigma
-        )
-
-        frame[face_y1:face_y2, face_x1:face_x2] = blurred_face
+        return None    
 
     @abstractmethod
     def get_fps(self):
