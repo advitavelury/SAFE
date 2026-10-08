@@ -1,21 +1,9 @@
 from datetime import datetime, timedelta, timezone
-from pydantic import BaseModel
 from firebase_admin import firestore
 import cv2
 from .firebase_config import production_db, production_bucket
 from google.api_core.exceptions import NotFound
-from .event_types import EventType, EventStatus
-
-class Event(BaseModel):
-    id: str
-    person_id: int
-    status: EventStatus = EventStatus.OPEN
-    completed_at: datetime | None = None 
-    completed_by: str | None = None 
-    event_type: EventType
-    timestamp: datetime
-    image_url: str | None = None
-    image_path: str
+from .event_types import Event, EventType, EventStatus
 
 class EventService:
 
