@@ -3,7 +3,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { LogIn, LogOut, ShieldCheck } from "lucide-react";
 import { auth, db, firebaseConfigured, signInStaff } from "../api/firebase.js";
-import { watchStaffAccess } from "../api/staffAccess.js";
+import { staffAccessErrorMessage, watchStaffAccess } from "../api/staffAccess.js";
 import { StaffSession } from "../api/StaffSession.jsx";
 import { C, FONT } from "../theme.js";
 
@@ -114,7 +114,7 @@ export default function StaffAccess({ children }) {
             <p role="status" className="text-sm text-gray-600">
               {session.status === "checking" ? "Waiting for a connection."
                 : session.status === "denied" ? "Your account needs an active staff role. Contact your administrator."
-                : "Check your connection or contact your administrator."}
+                : staffAccessErrorMessage(session.errorCode)}
             </p>
             <button type="button" onClick={() => setAttempt((n) => n + 1)} className="rounded-md px-4 py-3 font-semibold" style={buttonStyle}>Retry</button>
             {session.user && <button type="button" onClick={logout} className="flex items-center justify-center gap-2 py-2"><LogOut size={16} />Sign out</button>}
