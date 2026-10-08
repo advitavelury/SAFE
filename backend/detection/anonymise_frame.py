@@ -35,15 +35,13 @@ def blur_person(frame, bounding_box, keypoints, conf):
         face_centre = None 
 
         body_direction = get_face_direction(keypoints, conf=conf) # The return value can be None or a vector with floating point values. 
-
-        print(f"BODY DIRECTION IS {body_direction}")
         
         face_centre = estimate_from_face_keypoints(keypoints=keypoints, conf=conf) # The return value can be None or a vector with integer values. 
 
         if face_centre is None and body_direction is not None:
             face_centre = estimate_from_body_keypoints(keypoints=keypoints, conf = conf, body_direction = body_direction)
 
-        if face_centre is not None:
+        if face_centre is not None and body_direction is not None:
             shoulder_width = np.linalg.norm(
                                 np.array(keypoints[L_SHOULDER][:2]) -
                                 np.array(keypoints[R_SHOULDER][:2])
