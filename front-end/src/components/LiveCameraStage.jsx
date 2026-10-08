@@ -3,12 +3,13 @@ import { Camera, Square, RefreshCw } from "lucide-react";
 import { auth } from "../api/firebase.js";
 import { useStaffSession } from "../api/StaffSession.jsx";
 import { canEditIncidents } from "../api/staffAccess.js";
+import { mediaServiceEnabled, mediaServiceUrl } from "../api/mediaService.js";
 
 async function cameraRequest(path, options = {}) {
   if (!auth?.currentUser) throw new Error("Staff sign-in required.");
   const token = await auth.currentUser.getIdToken();
-  const response = await fetch(`/api/camera/${path}`, {
-    ...options, cache: "no-store", headers: { Authorization: `Bearer ${token}` },
+  const response = await fetch(mediaServiceUrl(`/api/camera/${path}`), {
+    ...options, cache: "no-store", redirect: "error", credentials: "omit", headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.any([options.signal, AbortSignal.timeout(5000)].filter(Boolean)),
   });
   if (response.status === 401 || response.status === 403) {
@@ -27,6 +28,11 @@ export default function LiveCameraStage({ zoneId, className = "" }) {
   const objectUrl = useRef(null);
 
   useEffect(() => {
+    if (!mediaServiceEnabled) {
+      setImage(null);
+      setState({ state: "unavailable", message: "Live camera is not connected to this deployment." });
+      return;
+    }
     const controller = new AbortController();
     let timer;
     let disposed = false;
@@ -85,7 +91,7 @@ export default function LiveCameraStage({ zoneId, className = "" }) {
   }, [zoneId, attempt]);
 
   async function command(action) {
-    if (!canControl) return;
+    if (!canControl || !mediaServiceEnabled) return;
     setBusy(true);
     try {
       const response = await cameraRequest(action, { method: "POST" });
@@ -105,7 +111,7 @@ export default function LiveCameraStage({ zoneId, className = "" }) {
         <p role="status" className="text-sm">{!canControl && ["idle", "ended"].includes(state.state) ? "Camera is off. An administrator can start it." : state.message}</p>
       </div>}
       {image && <span className="absolute left-3 top-3 rounded bg-black/70 px-2 py-1 text-xs font-semibold">{state.source === "video" ? "TEST VIDEO" : "LIVE"}</span>}
-      {state.state !== "unassigned" && <div className="absolute bottom-3 right-3 flex gap-2">
+      {mediaServiceEnabled && state.state !== "unassigned" && <div className="absolute bottom-3 right-3 flex gap-2">
         {canControl && active ? <button title="Stop camera" aria-label="Stop camera" disabled={busy} onClick={() => command("stop")}
           className="flex h-10 w-10 items-center justify-center rounded-md bg-red-700 disabled:opacity-50"><Square size={18} /></button>
           : canControl && ["idle", "ended", "error"].includes(state.state)

@@ -50,6 +50,13 @@ cd front-end
 npm ci
 ```
 
+## Vercel deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the `deployment` branch, exact Vercel
+settings, public environment variables, Firebase checks and current limitations.
+The first deployment hosts the dashboard only; camera and playback remain
+unavailable until a compatible authenticated HTTPS media service is connected.
+
 ## Firebase setup
 
 1. Use the team's `safe-ddacb` Firebase project and register a Firebase web app in it.

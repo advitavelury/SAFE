@@ -23,6 +23,8 @@ build/
 *service-account*.json
 *firebase-adminsdk*.json
 .secrets/
+.vercel/
+**/.vercel/
 
 # Private local incident recordings
 backend/recordings/
