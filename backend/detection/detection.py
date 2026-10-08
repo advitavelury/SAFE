@@ -1,5 +1,6 @@
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 import time
 from datetime import timedelta
@@ -10,10 +11,10 @@ from threading import Lock, Event
 from queue import Queue, Empty
 
 from .person import Person
+from .anonymise_frame import anonymise_event
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from .frame_context import FrameContext
 from ..event import event_service
-from ..event_types import EventType
 
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
@@ -118,6 +119,7 @@ class Program(ABC):
                     boxes = results[0].boxes.xyxy.numpy().astype(int)
                     ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
                     all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+                    all_conf = results[0].keypoints.conf # list of keypoints confidence percentage depending on the amount of people in the frame
                     people_in_frame = len(ids)
                     annotated_frame = results[0].plot(
                         boxes=True,      # draw bounding boxes
@@ -132,7 +134,7 @@ class Program(ABC):
                             self.persons[person_id] = person
                         box = boxes[i]
                         kp = all_kp[i]  # keypoints of a person
-                        confidence = results[0].keypoints.conf[i]
+                        confidence = all_conf[i]
                         self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
                         frame_context = FrameContext(
                             frame=annotated_frame, 
@@ -145,8 +147,11 @@ class Program(ABC):
                         sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
 
                         event = fall_event or wandering_event or isolation_event or sitting_event
+                        if event:
+                            print(f"An EVENT HAS OCCURED AND person active event id is {person.active_event_id}")
                         if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event. 
-                            created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
+                            anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
+                            created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=anonymised_frame)
                             person.active_event_id = created_event.id
                             self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
                             
@@ -227,7 +232,7 @@ class Program(ABC):
         keypoints[L_ANKLE] = kp[L_ANKLE] if conf[L_ANKLE] > KP_CONF else None 
         keypoints[R_ANKLE] = kp[R_ANKLE] if conf[R_ANKLE] > KP_CONF else None 
 
-        return None
+        return None    
 
     @abstractmethod
     def get_fps(self):
