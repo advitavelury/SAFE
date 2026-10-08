@@ -52,11 +52,11 @@ npm ci
 
 ## Firebase setup
 
-1. Create a Firestore database and register a Firebase web app.
+1. Use the team's `safe-ddacb` Firebase project and register a Firebase web app in it.
 2. Enable Email/Password in Authentication. Anonymous sign-in is not used.
 3. Create a staff account, then a Firestore document at `users/UID` with `active: true` (boolean) and `role: "admin"` or `"operator"`.
-4. Copy `front-end/.env.example` to `front-end/.env` and fill in the web app configuration.
-5. Configure the backend using `backend/firebase_config.py`: place your private Admin SDK JSON file beside it and set the filename and Storage bucket to match your project. The current backend does not load `backend/.env`.
+4. Copy `front-end/.env.example` to `front-end/.env` and fill in the complete web app configuration from `safe-ddacb`. Do not mix its project ID with API keys/app IDs from the former `safe-1426e` project. Restart Vite after changing environment values.
+5. Download a private Admin SDK JSON file for `safe-ddacb` and keep it outside Git (for example, in the ignored `.secrets/` directory). Set the shell environment variable `FIREBASE_SERVICE_ACCOUNT` to its path. Alternatively, the existing default filename `backend/safe-ddacb-firebase-adminsdk-fbsvc-7c69c74b63.json` remains supported. The backend rejects keys from a different project. It does not load `backend/.env` automatically.
 6. Publish the included Firestore rules for the dashboard through the Firebase console, or using the Firebase CLI:
 
 ```bash
@@ -65,14 +65,18 @@ firebase deploy --only firestore:rules --project YOUR_PROJECT_ID
 
 Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
 
-Approved `admin` accounts can review the dashboard's incident records; approved `operator` accounts have read-only access. Use the Authentication account's exact UID for the `users/UID` document. Draft browser settings do not configure the Python detectors.
+Approved `admin` accounts can review the dashboard's incident records and complete/delete events through the backend; approved `operator` accounts have read-only access. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Draft browser settings do not configure the Python detectors.
+
+The API requires a Firebase ID token in `Authorization: Bearer <id-token>` for `/auth/me`, `/events`, `/events/{id}` and `/video_feed`. It verifies the token with revocation/disabled-user checks and reads `users/{uid}` from the backend's Firebase project. Missing/invalid tokens return 401, unapproved users and forbidden writes return 403, and verification outages return 503. Profiles must have boolean `active: true` and exactly `admin` or `operator`; anonymous accounts are rejected. Tokens and Firestore profiles are checked on each API request, and ongoing streams recheck access approximately every five seconds. Failed checks end the stream.
+
+Event completion uses the verified admin UID. A legacy `completed_by` request field is accepted but ignored, and the body can be omitted. Roles cannot be changed through these endpoints. `/auth/me` returns the verified UID and role for connection checks. This follows [Firebase's server-side ID token verification flow](https://firebase.google.com/docs/auth/admin/verify-id-tokens).
 
 ## Run the backend
 
 From the repository root, with the Python environment activated:
 
 ```bash
-python -m backend.main
+FIREBASE_SERVICE_ACCOUNT="/absolute/path/to/your-service-account.json" python -m backend.main
 ```
 
 Choose the input in `backend/main.py` before starting:
@@ -80,7 +84,7 @@ Choose the input in `backend/main.py` before starting:
 - For the default webcam, set `video_mode = False`.
 - For a recording, set `video_mode = True` and update `video_footage_path` to an existing video. The current checkout selects video mode and refers to a developer-local test file.
 
-The API runs at http://127.0.0.1:8000. Open http://127.0.0.1:8000/docs to try the event endpoints, or http://127.0.0.1:8000/video_feed to view the stream. The backend opens a local OpenCV window as well.
+The API runs at http://127.0.0.1:8000. Open http://127.0.0.1:8000/docs and use **Authorize** with a Firebase ID token to try the event endpoints. A bare `/video_feed` URL or `<img>` has no bearer header and is intentionally rejected; never put tokens in URLs. The backend opens a local OpenCV window as well. Keep this prototype loopback-only; a remote deployment needs HTTPS and an authenticated streaming client.
 
 ## Run the dashboard
 
@@ -123,12 +127,18 @@ node --test tests/*.test.js tests/*.test.mjs
 npm run build
 ```
 
-The Python suite still contains tests for removed camera-server, incident-publisher, and recording modules; these need to be removed or updated before the full suite can pass. Detector tests also need package imports consistent with `backend.detection`. Unit tests do not establish real-video accuracy or clinical suitability.
+Install test dependencies with `pip install -r requirements-dev.txt`. Auth-only checks can run without a camera, service-account file or Firebase network calls:
+
+```bash
+python -B -m unittest discover -s tests -p test_staff_auth.py -v
+```
+
+The pulled detector tests currently fail on package imports inconsistent with `backend.detection`; this auth-only change leaves those tests and the detector logic untouched. Unit tests do not establish real-video accuracy or clinical suitability.
 
 ## Limitations and next steps
 
 - Connect the dashboard to the event API and video feed; its existing incident schema and camera API differ from the remaining backend.
-- The current FastAPI routes do not enforce the dashboard's staff authentication or roles.
+- Browser sign-in requires matching `safe-ddacb` web configuration, approved staff profiles, and published Firestore rules. Protected backend API access additionally requires a matching backend service-account file. Auth changes do not connect the remaining dashboard/API workflows.
 - Settings are draft browser preferences, not live detector configuration.
 - Video clip recording, face blur, and SMS/audio delivery are not implemented in the remaining backend.
 - Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.

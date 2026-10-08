@@ -1,5 +1,20 @@
 # SAFE Testing Plan and Report
 
+## Auth verification update - 8 October 2026
+
+- Re-ran 15 backend authorization tests, 8 Firebase configuration tests and 20 frontend tests; all passed. The frontend production build passed with the existing large-bundle warning.
+- Staff-profile failures now distinguish permission errors, connectivity failures and expired authentication using safe error messages. Tests cover fail-closed access and ignoring stale callbacks.
+- The local frontend now uses `safe-ddacb`. The user reports reaching the dashboard and seeing the administrator label, but administrator edits remain unresolved and are not verified end to end. Automated checks do not establish live Firebase permissions or backend integration.
+- Real environment files and service-account credentials are not included in Git. Firestore rules must be published separately.
+
+## Backend authentication - 6 October 2026
+
+- Scope: the team's pulled FastAPI/event implementation, with server-side Firebase ID-token verification and active `admin`/`operator` profiles. The discarded FastAPI/pacing stash was not restored.
+- Added 15 isolated tests covering token verification, revocation/disabled users, missing/unsupported staff profiles, anonymous denial, role changes, verification outages, all protected routes, read-only operators, admin-only completion/deletion, server-derived completion identity, missing events, and active-stream revocation. All 15 passed without Firebase network calls or camera capture.
+- The `Event` response model was moved unchanged into `event_types.py` so the route/auth tests can run without loading Firebase credentials or detector models. Production event storage and detection logic are unchanged.
+- The existing full Python suite was checked before edits and failed to import both detector test modules (`attempted relative import beyond top-level package`). This pre-existing issue remains outside the auth-only scope.
+- At this test run, live verification was pending: the matching backend service-account file was unavailable and the frontend project configuration still needed alignment. See the 8 October update for later frontend verification. No credentials, Firebase accounts, roles, deployed rules, cloud records or storage were modified by these tests. Earlier verification sections describe historical versions, not the current pulled backend.
+
 ## Admin editing and operator read-only checks - 1 October 2026
 
 - Permissions-only commit: 17 frontend tests passed; production build passed with the existing large-bundle warning.
