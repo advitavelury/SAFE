@@ -17,6 +17,7 @@ from ..event_types import AlertLevel
 from .detection_types import DetectionResult
 from .frame_context import FrameContext
 from ..event import event_service
+from ..detector_settings import DetectorSettingsService, apply_detector_settings
 
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
@@ -45,11 +46,25 @@ class Program(ABC):
         self.wandering_detector = WanderingDetector([("08:00", "20:00")]) # pass in normal hours in the form of tuples.
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
         self.sitting_detector = SittingDetector(timedelta(hours=2))
+        self.settings_service = DetectorSettingsService()
+        self._applied_settings = self.settings_service.get()
+        self.apply_settings(self._applied_settings)
         self.completion_queue: Queue[str] = Queue()  # this Queue is used by the API thread too. Passes in events that have been marked completed in the database. 
         self.outstanding_events: dict[str, int] = {}  # Maps an outstanding event in the current session to its person. 
         self.event_executor = ThreadPoolExecutor(max_workers=2)  # Used when creating an event in the detection loop
         self.pending_events = {}  # person_id -> Future
 
+
+    def refresh_detector_settings(self):
+        settings = self.settings_service.take_pending_update()
+        if settings is not None:
+            self.apply_settings(settings)
+            self._applied_settings = settings
+
+    def apply_settings(self, settings):
+        apply_detector_settings(settings, wandering=self.wandering_detector,
+                                sitting=self.sitting_detector,
+                                isolation=self.isolation_detector)
 
     @abstractmethod
     def get_cam(self):
@@ -131,6 +146,7 @@ class Program(ABC):
         model = self.model
         try:
             while not stop_event.is_set():
+                self.refresh_detector_settings()
                 self.process_pending_events() # process any events that may have finished being created. 
                 self.process_event_completions() # process any events marked as complete by the API Thread. 
                 ret, frame = cam.read()

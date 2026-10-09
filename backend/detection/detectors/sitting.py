@@ -158,6 +158,8 @@ BOX_THICKNESS = 2
 class SittingDetector():
     def __init__(self, threshold_time: timedelta):
         self.threshold_seconds = threshold_time.total_seconds()
+        self.break_seconds = SITTING_BREAK_SECONDS
+        self.warning_fraction = SITTING_WARNING_FRACTION
 
     # ------------------------------------------------------------------
     # Posture classification
@@ -361,7 +363,7 @@ class SittingDetector():
         else:
             if person.non_sitting_since is None:
                 person.non_sitting_since = frame_time
-            elif abs(frame_time - person.non_sitting_since) >= SITTING_BREAK_SECONDS:
+            elif abs(frame_time - person.non_sitting_since) >= self.break_seconds:
                 person.sitting_since = None
         person.sitting_position = posture
         return person.sitting_position
@@ -378,7 +380,7 @@ class SittingDetector():
         seconds = abs(frame_time - person.sitting_since)
         if seconds >= self.threshold_seconds:
             return AlertLevel.RED
-        if seconds >= self.threshold_seconds * SITTING_WARNING_FRACTION:
+        if seconds >= self.threshold_seconds * self.warning_fraction:
             return AlertLevel.AMBER
         return None
 
