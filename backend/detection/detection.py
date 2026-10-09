@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 from .person import Person
 from .anonymise_frame import anonymise_event
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
+from ..event_types import AlertLevel
+from .detection_types import DetectionResult
 from .frame_context import FrameContext
 from ..event import event_service
 
@@ -78,7 +80,9 @@ class Program(ABC):
 
                 person = self.persons.get(person_id)
 
-                if person is not None and person.active_event_id == event_id:
+                if person is not None and \
+                person.active_event_id is not None and \
+                person.active_event_id['id'] == event_id:
                     person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again. 
 
             finally:
@@ -97,10 +101,30 @@ class Program(ABC):
                 print(f"Event creation failed for {person_id}: {exc}")
                 continue
         
-            self.persons[person_id].active_event_id = created_event.id
+            self.persons[person_id].active_event_id = {
+                                                       "id": created_event.id, 
+                                                       "event_type": created_event.event_type, 
+                                                       "alert_level": created_event.alert_level
+                                                    }
             self.outstanding_events[created_event.id] = person_id # Currently the event is outstanding (hasn't been cleared) but 
             # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
-        
+    
+    def get_priority_event(self, events: list[DetectionResult]):
+        if not events:
+            return None 
+        urgent_alerts = [] # These are alerts that are of alert level = 'red'
+        non_urgent_alerts = [] # These are alerts that are of alert level = 'amber'
+        for res in events:
+            if res.alert_level == AlertLevel.RED.value:
+                urgent_alerts.append(res)
+            else:
+                non_urgent_alerts.append(res)
+        if urgent_alerts:
+            return urgent_alerts[0]
+        elif non_urgent_alerts:
+            return non_urgent_alerts[0]
+        return None
+
 
     def run(self, stop_event: Event):
         cam = self.get_cam()
@@ -162,21 +186,29 @@ class Program(ABC):
                             frame_time=frame_time, 
                             occupancy=people_in_frame
                         )
-                        fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                        wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
-                        isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                        sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+                        fall_result = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                        wandering_result = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                        isolation_result = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                        sitting_result = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+                        events = [fall_result, wandering_result, isolation_result, sitting_result]
+                        events = [event for event in events if event is not None]
 
-                        event = fall_event or wandering_event or isolation_event or sitting_event
-                        if (event and person.active_event_id is None 
-                            and person_id not in self.pending_events): # if there is an event raised by the detectors and the person doesn't have any active/pending events then raise an event. 
-                            anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
-                            self.pending_events[person_id] = self.event_executor.submit(
-                                                                event_service.create_event,
-                                                                person_id=person_id,
-                                                                event_type=event,
-                                                                frame=anonymised_frame,
-                                                            )
+                        event = self.get_priority_event(events=events)
+                        if (event is not None):
+                            if (person.active_event_id is None\
+                                or (person.active_event_id['alert_level'] == AlertLevel.AMBER.value and event.alert_level == AlertLevel.RED.value)) \
+                              and (person_id not in self.pending_events): 
+                            # if there is no event raised for a particular person, we can raise another event. If an active event already exists for a person, 
+                            # check if the existing event is of amber level. If so, we can still raise events of higher severity. 
+                            # also make sure the person doesn't have any events pending events waiting to be created. 
+                                anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
+                                self.pending_events[person_id] = self.event_executor.submit(
+                                                                    event_service.create_event,
+                                                                    person_id=person_id,
+                                                                    event_type=event.event_type,
+                                                                    alert_level = event.alert_level,
+                                                                    frame=anonymised_frame,
+                                                                )
                             
                 # Write the fps to the frame.    
                 display_frame = frame if annotated_frame is None else annotated_frame

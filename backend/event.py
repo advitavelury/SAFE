@@ -3,7 +3,7 @@ from firebase_admin import firestore
 import cv2
 from .firebase_config import production_db, production_bucket
 from google.api_core.exceptions import NotFound
-from .event_types import Event, EventType, EventStatus
+from .event_types import Event, EventType, EventStatus, AlertLevel
 
 class EventService:
 
@@ -11,9 +11,10 @@ class EventService:
         self.db = db
         self.bucket = bucket
 
-    def create_event(self, person_id:int, event_type: EventType, frame, timestamp:datetime|None = None) -> Event:
+    def create_event(self, person_id:int, event_type: EventType, alert_level: AlertLevel, frame, timestamp:datetime|None = None) -> Event:
 
         event_type = EventType(event_type) # validate the event type before saving
+        alert_level = AlertLevel(alert_level) # validate the alert level before saving
 
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
@@ -42,6 +43,7 @@ class EventService:
             {
                 "person_id": person_id,
                 "event_type": event_type.value,
+                "alert_level": alert_level.value,
                 "status": EventStatus.OPEN,
                 "timestamp": timestamp, 
                 "image_path": image_path
@@ -52,6 +54,7 @@ class EventService:
             id=event_id,
             person_id=person_id,
             event_type=event_type,
+            alert_level=alert_level,
             timestamp=timestamp,
             image_path=image_path,
         )
@@ -79,6 +82,7 @@ class EventService:
             id=event_id,
             person_id=(data["person_id"]),
             event_type=EventType(data["event_type"]),
+            alert_level=AlertLevel(data["alert_level"]),
             timestamp=data["timestamp"],
             image_path=image_path,
             image_url=image_url,
@@ -138,6 +142,7 @@ class EventService:
                 id=doc.id,
                 person_id=data["person_id"],
                 event_type=EventType(data["event_type"]),
+                alert_level=AlertLevel(data["alert_level"]),
                 status=EventStatus(
                     data.get("status", EventStatus.OPEN.value)
                 ),

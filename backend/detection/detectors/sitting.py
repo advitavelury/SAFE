@@ -55,7 +55,8 @@ from datetime import timedelta
 from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label, draw_box
-from ...event_types import EventType
+from ...event_types import EventType, AlertLevel
+from ..detection_types import DetectionResult
 
 # COCO keypoint indices
 NOSE = 0
@@ -365,7 +366,7 @@ class SittingDetector():
         person.sitting_position = posture
         return person.sitting_position
 
-    def alert_sitting_event(self, person: Person, frame_time) -> bool:
+    def alert_sitting_event(self, person: Person, frame_time) -> AlertLevel | None:
         """Has the current sitting streak exceeded the threshold?
 
         Keyed off sitting_since rather than sitting_position, so an
@@ -373,23 +374,15 @@ class SittingDetector():
         alert - same reasoning as FallDetector.alert_fall_event.
         """
         if person.sitting_since is None:
-            return False
-        return abs(frame_time - person.sitting_since) >= self.threshold_seconds
-
-    def sitting_box_color(self, person: Person, frame_time):
-        """Graded box outline colour for the current sitting streak: None
-        (no box) below the warning fraction, amber from the halfway point,
-        scarlet once alert_sitting_event's threshold is reached."""
-        if person.sitting_since is None:
             return None
         seconds = abs(frame_time - person.sitting_since)
         if seconds >= self.threshold_seconds:
-            return BOX_COLOR_ALERT
+            return AlertLevel.RED
         if seconds >= self.threshold_seconds * SITTING_WARNING_FRACTION:
-            return BOX_COLOR_WARNING
+            return AlertLevel.AMBER
         return None
 
-    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
+    def check_detector(self, ctx: FrameContext, person: Person) -> DetectionResult | None:
         frame = ctx.frame
         frame_time = ctx.frame_time
 
@@ -402,17 +395,17 @@ class SittingDetector():
         box_midpoint = person.box_midpoint()
         label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
         draw_label(frame, position, label_point, LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
-
-        box_color = self.sitting_box_color(person=person, frame_time=frame_time)
-        if box_color is not None:
-            draw_box(frame, person.box_coords, box_color, BOX_THICKNESS)
-
         alert = self.alert_sitting_event(person=person, frame_time=frame_time)
         if alert:
+            box_color = BOX_COLOR_ALERT if alert == AlertLevel.RED else BOX_COLOR_WARNING
+            draw_box(frame, person.box_coords, box_color, BOX_THICKNESS)
             seconds = abs(frame_time - person.sitting_since)
             draw_label(frame, f"Person {person.id} has been sitting for {seconds:.0f}s",
                        (30, 60), LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} has been sitting for over "
-                  f"{self.threshold_seconds:.0f}s")
-            return EventType.SITTING_DISTRESS
+                  f"{seconds:.0f}s")
+            return DetectionResult(
+                event_type=EventType.SITTING_DISTRESS, 
+                alert_level=alert
+                )
         return None
