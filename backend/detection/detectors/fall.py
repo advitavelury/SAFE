@@ -1,7 +1,8 @@
 from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label
-from ...event_types import EventType
+from ...event_types import EventType, AlertLevel
+from ..detection_types import DetectionResult
 
 DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
@@ -65,7 +66,7 @@ class FallDetector():
 
         return self.person_posture[person_id]
 
-    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
+    def check_detector(self, ctx: FrameContext, person: Person) -> DetectionResult | None:
         frame = ctx.frame
         frame_time = ctx.frame_time
         posture = self.classify_posture(person=person)
@@ -82,7 +83,10 @@ class FallDetector():
             draw_label(frame, f"Person {person.id} had a fall", (30, 40),
                        LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} had a fall")
-            return EventType.FALL
+            return DetectionResult(
+                event_type=EventType.FALL, 
+                alert_level=AlertLevel.RED
+                )
         return None
 
 

@@ -12,6 +12,9 @@ class EventStatus(str, Enum):
     OPEN = "open"
     CLOSED = "closed"
 
+class AlertLevel(str, Enum):
+    AMBER = "amber"
+    RED = "red"
 
 class Event(BaseModel):
     id: str
@@ -20,6 +23,7 @@ class Event(BaseModel):
     completed_at: datetime | None = None
     completed_by: str | None = None
     event_type: EventType
+    alert_level: AlertLevel
     timestamp: datetime
     image_url: str | None = None
     image_path: str
