@@ -1,5 +1,10 @@
 # Browser webcams and the laptop demo detector
 
+On the `recorded-video` branch, optional local red-event clips are available.
+See [RECORDED_VIDEO.md](RECORDED_VIDEO.md) for setup, privacy limitations and
+validation. The metadata-only behaviour below still applies when recording is
+not explicitly enabled on both backend and dashboard.
+
 ## Available without backend setup
 
 Approved admins and operators can use **Connect webcam** on the Monitor page.

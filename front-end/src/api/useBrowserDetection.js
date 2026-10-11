@@ -20,7 +20,7 @@ async function request(user, path, options = {}) {
   if (!response.ok) {
     const messages = { 401: 'Sign in again to use detection.', 403: 'Administrator access is required.',
       404: 'Detection session expired. Start detection again.',
-      409: 'The laptop detector is in use. Stop the other session first.',
+      409: 'The detector is in use, or recording is not enabled on this laptop.',
       429: 'The laptop detector is busy. Try again.',
       503: 'Detection or saving is unavailable. Check the laptop backend.' };
     throw new Error(messages[response.status] || 'The detector could not process this frame.');
@@ -28,7 +28,7 @@ async function request(user, path, options = {}) {
   return response;
 }
 
-export function useBrowserDetection(videoRef, stream) {
+export function useBrowserDetection(videoRef, stream, recordRedEvents = false) {
   const session = useStaffSession();
   const user = session?.user;
   const canControl = session?.status === 'ready' && canEditIncidents(user, session?.profile);
@@ -49,6 +49,7 @@ export function useBrowserDetection(videoRef, stream) {
     let sessionId;
     let timer;
     let previousMetrics = null;
+    let recording = false;
     setMetrics(null);
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -95,7 +96,9 @@ export function useBrowserDetection(videoRef, stream) {
         setImage(imageUrl.current);
         previousMetrics = frameMetrics(previousMetrics, performance.now(), startedAt);
         setMetrics(previousMetrics);
-        setState({ status: 'running', message: 'Detection active. Incident metadata is saved to Firebase. No clips recorded.' });
+        setState({ status: 'running', recording, message: recording
+          ? 'Detection active. Red-event clips are redacted and saved on the demo laptop.'
+          : 'Detection active. Incident metadata is saved to Firebase. No clips recorded.' });
         // Backpressure: never queue webcam frames while an inference request is running.
         timer = setTimeout(frame, nextFrameDelay(performance.now() - startedAt));
       } catch (error) {
@@ -107,9 +110,12 @@ export function useBrowserDetection(videoRef, stream) {
       }
     }
     setState({ status: 'connecting', message: 'Connecting to laptop detector...' });
-    request(user, 'sessions', { method: 'POST', signal: abort.signal }).then(r => r.json()).then(data => {
+    request(user, 'sessions', { method: 'POST', signal: abort.signal,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recordRedEvents }) }).then(r => r.json()).then(data => {
       if (!/^[a-f0-9]{32}$/.test(data.id)) throw new Error('Invalid detector session.');
       sessionId = data.id;
+      recording = data.recording === true;
+      if (recordRedEvents && !recording) throw new Error('This backend did not enable recording. Update the laptop backend.');
       if (disposed) closeSession();
       else frame();
     }).catch(error => {
@@ -126,7 +132,7 @@ export function useBrowserDetection(videoRef, stream) {
       setMetrics(null);
       closeSession();
     };
-  }, [requested, stream, canControl, user, videoRef]);
+  }, [requested, stream, canControl, user, videoRef, recordRedEvents]);
 
   return { ...state, image, metrics, requested, canControl, enabled: browserDetectorEnabled,
     start: () => { if (stream && canControl && browserDetectorEnabled) setRequested(true); },

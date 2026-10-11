@@ -4,6 +4,9 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+import asyncio
+import logging
+from pathlib import Path
 from threading import Lock
 
 import cv2
@@ -12,7 +15,8 @@ from PIL import Image, UnidentifiedImageError
 from PIL.JpegImagePlugin import JpegImageFile
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
+from pydantic import BaseModel, StrictBool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
@@ -20,10 +24,15 @@ from .staff_auth import StaffAuthorizer
 from .frame_authorizer import FrameAuthorizer
 from .detector_settings import (DetectorSettingsService, DetectorSettings,
                                DetectorSettingsPatch, SettingsUnavailable)
+from .recordings import ClipStore, valid_id
 
 MAX_FRAME_BYTES = 500_000
 SESSION_IDLE_SECONDS = 15
 PRODUCTION_ORIGIN = "https://safe-dashboard-avelury04-4128.vercel.app"
+
+
+class StartSession(BaseModel):
+    recordRedEvents: StrictBool = False
 
 
 def decode_frame(data):
@@ -43,11 +52,16 @@ def decode_frame(data):
 
 
 class BrowserSessions:
-    def __init__(self, factory, clock=time.monotonic):
+    def __init__(self, factory, clock=time.monotonic, recording_factory=None):
         self.factory = factory
         self.clock = clock
         self.lock = Lock()
         self.session = None
+        self.recording_factory = recording_factory
+
+    def expire(self):
+        with self.lock:
+            self._expire()
 
     def _expire(self):
         if self.session and self.clock() - self.session["seen"] > SESSION_IDLE_SECONDS:
@@ -62,15 +76,17 @@ class BrowserSessions:
         with self.lock:
             self._close()
 
-    def start(self, uid):
+    def start(self, uid, record=False):
         with self.lock:
             self._expire()
             if self.session:
                 raise HTTPException(409, "The demo detector is already in use. Stop the other session or wait for it to expire.")
             session_id = uuid.uuid4().hex
-            detector = self.factory(session_id)
+            if record and self.recording_factory is None:
+                raise HTTPException(409, "Recording is not enabled on this laptop.")
+            detector = (self.recording_factory if record else self.factory)(session_id)
             self.session = {"id": session_id, "uid": uid, "detector": detector, "seen": self.clock()}
-            return {"id": session_id, "idleTimeoutSeconds": SESSION_IDLE_SECONDS, "recording": False}
+            return {"id": session_id, "idleTimeoutSeconds": SESSION_IDLE_SECONDS, "recording": record}
 
     def _owned(self, uid, session_id):
         self._expire()
@@ -99,22 +115,52 @@ class BrowserSessions:
 
 
 def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=time.monotonic,
-               settings_service=None):
+               settings_service=None, clip_store=None, recording_factory=None):
     authorizer = authorizer or StaffAuthorizer()
     frame_authorizer = FrameAuthorizer(authorizer, clock=clock)
     settings_service = settings_service if settings_service is not None else DetectorSettingsService()
+    if clip_store is None and os.environ.get('SAFE_RECORDINGS_ENABLED') == 'true':
+        clip_store = ClipStore(os.environ.get('SAFE_RECORDINGS_DIR',
+                              str(Path(__file__).resolve().parent / 'recordings')))
     if detector_factory is None:
         from .browser_detection import BrowserDetector
         detector_factory = lambda session_id: BrowserDetector(session_id, settings_service=settings_service)
-    sessions = BrowserSessions(detector_factory, clock)
+        if clip_store is not None:
+            recording_factory = lambda session_id: BrowserDetector(session_id,
+                settings_service=settings_service, clip_store=clip_store)
+    sessions = BrowserSessions(detector_factory, clock, recording_factory)
     allowed = origins if origins is not None else [value.strip() for value in
         os.environ.get("SAFE_WEB_ORIGINS", PRODUCTION_ORIGIN).split(",") if value.strip()]
     if not allowed or "*" in allowed:
         raise ValueError("SAFE_WEB_ORIGINS must list the explicit approved frontend origins.")
     @asynccontextmanager
     async def lifespan(app):
-        yield
-        await run_in_threadpool(sessions.close)
+        async def expire_idle():
+            ticks = 0
+            while True:
+                await asyncio.sleep(2)
+                try:
+                    await run_in_threadpool(sessions.expire)
+                    ticks += 1
+                    if clip_store is not None and ticks % 30 == 0:
+                        await run_in_threadpool(clip_store.prune)
+                except Exception:
+                    # A failed save must not leave idle capture state alive.
+                    logging.getLogger(__name__).warning('Idle recording session closed with a save failure.')
+        expiry = asyncio.create_task(expire_idle())
+        try:
+            yield
+        finally:
+            expiry.cancel()
+            try:
+                await expiry
+            except asyncio.CancelledError:
+                pass
+            try:
+                await run_in_threadpool(sessions.close)
+            finally:
+                if clip_store is not None:
+                    await run_in_threadpool(clip_store.close)
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=allowed, allow_methods=["GET", "PATCH", "POST", "DELETE"],
@@ -134,6 +180,37 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
 
     def require_frame_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         return authorize(credentials, frame_authorizer)
+
+    def require_staff(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+        if credentials is None:
+            raise HTTPException(401, 'Staff sign-in required.')
+        return authorizer.verify(credentials.credentials)
+
+    def checked_clip_id(incident_id):
+        if not valid_id(incident_id):
+            raise HTTPException(400, 'Invalid incident ID.')
+
+    @app.get('/api/incidents/{incident_id}/clip')
+    def clip_info(incident_id: str, staff=Depends(require_staff)):
+        checked_clip_id(incident_id)
+        if clip_store is None:
+            return {'status': 'unavailable', 'message': 'Local recording is not enabled on this laptop.'}
+        try:
+            return clip_store.info(incident_id)
+        except (OSError, ValueError):
+            raise HTTPException(404, 'Recording unavailable.') from None
+
+    @app.get('/api/incidents/{incident_id}/clip/file')
+    def clip_file(incident_id: str, staff=Depends(require_staff)):
+        checked_clip_id(incident_id)
+        try:
+            path = clip_store.file(incident_id) if clip_store else None
+        except (OSError, ValueError):
+            path = None
+        if path is None:
+            raise HTTPException(404, 'Recording unavailable.')
+        return FileResponse(path, media_type='video/mp4', filename=f'{incident_id}.mp4',
+                            content_disposition_type='inline')
 
     @app.get("/admin/detector-settings", response_model=DetectorSettings)
     def get_settings(staff=Depends(require_admin)):
@@ -157,9 +234,9 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
         return response
 
     @app.post("/api/browser-camera/sessions")
-    def start(staff=Depends(require_admin)):
+    def start(body: StartSession | None = None, staff=Depends(require_admin)):
         try:
-            return sessions.start(staff.uid)
+            return sessions.start(staff.uid, body.recordRedEvents if body else False)
         except HTTPException:
             raise
         except Exception:

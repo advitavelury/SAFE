@@ -12,11 +12,14 @@ export default function BrowserCameraStage() {
   const uid = session?.user?.uid;
   const [state, setState] = useState(INITIAL_CAMERA_STATE);
   const [view, setView] = useState('live');
+  const [recordRedEvents, setRecordRedEvents] = useState(false);
   const controller = useRef(null);
   const video = useRef(null);
-  const detection = useBrowserDetection(video, state.stream);
+  const detection = useBrowserDetection(video, state.stream, recordRedEvents);
   const selectId = useId();
   const statusId = useId();
+
+  useEffect(() => { setRecordRedEvents(false); }, [uid]);
 
   useEffect(() => {
     setState(INITIAL_CAMERA_STATE);
@@ -79,10 +82,14 @@ export default function BrowserCameraStage() {
     <p id={statusId} className="browser-camera-status" role={state.status === 'error' ? 'alert' : 'status'}>
       {approved ? live && detection.requested ? 'Webcam connected.' : state.message : 'An approved staff sign-in is required.'}
     </p>
-    <div className="browser-camera-privacy"><span>{detection.requested ? 'Frames sent to demo laptop' : 'On this device only'}</span><span>No video recording</span></div>
+    <div className="browser-camera-privacy"><span>{detection.requested ? 'Frames sent to demo laptop' : 'On this device only'}</span><span>{detection.requested && detection.recording ? 'Redacted red-event clips' : 'No video recording'}</span></div>
     {live && <div className="browser-detection-controls">
       {detection.enabled && detection.canControl ? <>
-        <p className="browser-camera-status">{detection.requested ? 'Live frames are being transmitted.' : 'Starting detection sends video frames to the demo laptop and saves incident metadata to Firebase.'}</p>
+        <label className="setting-row"><span>Record red events locally (redacted, no audio)</span><input type="checkbox"
+          checked={recordRedEvents} disabled={detection.requested} onChange={event => setRecordRedEvents(event.target.checked)}/></label>
+        <p className="browser-camera-status">{detection.requested ? 'Live frames are being transmitted.' : recordRedEvents
+          ? 'Starting detection sends frames to the demo laptop. Red-event clips are stored there; expired clips are removed during backend cleanup. Use consenting participants only.'
+          : 'Starting detection sends video frames to the demo laptop and saves incident metadata to Firebase.'}</p>
         <button type="button" onClick={detection.requested ? detection.stop : detection.start}>
           {detection.requested ? <Square size={16}/> : <ScanLine size={16}/>}{detection.requested ? 'Stop detection' : 'Start detection'}
         </button>

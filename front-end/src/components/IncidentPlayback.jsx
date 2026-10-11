@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, RefreshCw, VideoOff, Crosshair } from 'lucide-react';
-import { recordingRequest } from '../api/recordings.js';
-import { mediaServiceEnabled } from '../api/mediaService.js';
+import { recordingRequest, recordingServiceEnabled } from '../api/recordings.js';
 
 export default function IncidentPlayback({ incidentId }) {
   const [state, setState] = useState({ status: 'loading' });
@@ -10,7 +9,7 @@ export default function IncidentPlayback({ incidentId }) {
   const video = useRef(null);
 
   useEffect(() => {
-    if (!mediaServiceEnabled) {
+    if (!recordingServiceEnabled) {
       setUrl(null);
       setState({ status: 'unavailable', message: 'Recordings are not connected to this deployment.' });
       return;
@@ -66,12 +65,12 @@ export default function IncidentPlayback({ incidentId }) {
     </div>
     <div className="playback-actions">
       {state.status === 'ready' && <>
-        <small>{Math.round(state.durationSeconds)}s · No audio{state.partial ? ' · Partial clip' : ''}</small>
+        <small>{Math.round(state.durationSeconds)}s · No audio{state.redacted ? ' · Redacted' : ''}{state.partial ? ' · Partial clip' : ''}</small>
         <button type="button" className="text-button" title="Jump to alert" onClick={() => {
           if (video.current) video.current.currentTime = state.eventOffsetSeconds || 0;
         }}><Crosshair size={16} />Alert</button>
       </>}
-      {mediaServiceEnabled && !pending && state.status !== 'ready' && <button type="button" className="text-button"
+      {recordingServiceEnabled && !pending && state.status !== 'ready' && <button type="button" className="text-button"
         onClick={() => setAttempt(n => n + 1)}><RefreshCw size={15} />Retry</button>}
     </div>
   </section>;
