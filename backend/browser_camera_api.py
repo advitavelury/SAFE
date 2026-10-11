@@ -16,6 +16,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
 from .staff_auth import StaffAuthorizer
+from .frame_authorizer import FrameAuthorizer
 
 MAX_FRAME_BYTES = 500_000
 SESSION_IDLE_SECONDS = 15
@@ -87,6 +88,7 @@ class BrowserSessions:
 
 def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=time.monotonic):
     authorizer = authorizer or StaffAuthorizer()
+    frame_authorizer = FrameAuthorizer(authorizer, clock=clock)
     if detector_factory is None:
         from .browser_detection import BrowserDetector
         detector_factory = BrowserDetector
@@ -100,13 +102,19 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
                        allow_headers=["Authorization", "Content-Type"], allow_credentials=False)
     bearer = HTTPBearer(auto_error=False)
 
-    def require_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+    def authorize(credentials, verifier):
         if credentials is None:
             raise HTTPException(401, "Staff sign-in required.")
-        staff = authorizer.verify(credentials.credentials)
+        staff = verifier.verify(credentials.credentials)
         if staff.role != "admin":
             raise HTTPException(403, "Only administrators can start or submit monitoring sessions.")
         return staff
+
+    def require_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+        return authorize(credentials, authorizer)
+
+    def require_frame_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+        return authorize(credentials, frame_authorizer)
 
     @app.middleware("http")
     async def private_responses(request, call_next):
@@ -125,7 +133,7 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
             raise HTTPException(503, "Detector could not start. Check the laptop's model and Firebase configuration.") from None
 
     @app.post("/api/browser-camera/sessions/{session_id}/frames")
-    async def frame(session_id: str, request: Request, staff=Depends(require_admin)):
+    async def frame(session_id: str, request: Request, staff=Depends(require_frame_admin)):
         if request.headers.get("content-type", "").split(";")[0] != "image/jpeg":
             raise HTTPException(415, "Send image/jpeg frames.")
         body = bytearray()

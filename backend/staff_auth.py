@@ -10,6 +10,7 @@ class StaffPrincipal:
     uid: str
     role: str
     token: str = field(repr=False)
+    expires_at: float = 0
 
 
 class StaffAuthorizer:
@@ -46,4 +47,5 @@ class StaffAuthorizer:
             raise HTTPException(503, "Unable to verify staff access.") from None
         if profile.get("active") is not True or profile.get("role") not in ("admin", "operator"):
             raise HTTPException(403, "Staff access not approved.")
-        return StaffPrincipal(uid=uid, role=profile["role"], token=token)
+        return StaffPrincipal(uid=uid, role=profile["role"], token=token,
+                              expires_at=claims.get("exp", 0))

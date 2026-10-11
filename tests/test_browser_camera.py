@@ -1,4 +1,5 @@
 import unittest
+import time
 from types import SimpleNamespace
 from threading import Lock
 from unittest.mock import Mock
@@ -48,6 +49,33 @@ class BrowserCameraTests(unittest.TestCase):
         self.detector.infer.assert_called_once()
         self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}", headers=self.headers()).status_code, 204)
         self.assertEqual(self.start().status_code, 200)
+
+    def test_frame_cache_does_not_skip_fresh_start_or_stop_checks(self):
+        authorizer = Mock()
+        authorizer.verify.return_value = SimpleNamespace(uid="admin", role="admin", expires_at=time.time() + 3600)
+        client = TestClient(create_app(authorizer=authorizer, detector_factory=self.factory,
+            origins=[self.origin], clock=lambda: self.now))
+        session = client.post("/api/browser-camera/sessions", headers=self.headers()).json()["id"]
+        url = f"/api/browser-camera/sessions/{session}/frames"
+        for _ in range(4):
+            self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 200)
+        self.assertEqual(authorizer.verify.call_count, 2)
+        self.assertEqual(client.delete(f"/api/browser-camera/sessions/{session}", headers=self.headers()).status_code, 204)
+        self.assertEqual(authorizer.verify.call_count, 3)
+        self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 404)
+
+    def test_frame_cache_rechecks_role_after_one_second(self):
+        authorizer = Mock()
+        authorizer.verify.return_value = SimpleNamespace(uid="admin", role="admin", expires_at=time.time() + 3600)
+        client = TestClient(create_app(authorizer=authorizer, detector_factory=self.factory,
+            origins=[self.origin], clock=lambda: self.now))
+        session = client.post("/api/browser-camera/sessions", headers=self.headers()).json()["id"]
+        url = f"/api/browser-camera/sessions/{session}/frames"
+        self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 200)
+        authorizer.verify.return_value = SimpleNamespace(uid="admin", role="operator", expires_at=time.time() + 3600)
+        self.now += 1.0
+        self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 403)
+        self.assertEqual(self.detector.infer.call_count, 1)
 
     def test_anonymous_unapproved_and_operator_cannot_submit_frames(self):
         session = self.start().json()["id"]

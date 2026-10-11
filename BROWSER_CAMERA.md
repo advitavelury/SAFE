@@ -54,7 +54,13 @@ preview their own camera but cannot initiate incident-producing monitoring.
 - `POST /api/browser-camera/sessions`: create one exclusive demo session.
 - `POST /api/browser-camera/sessions/{id}/frames`: JPEG input, JPEG overlay output.
 - `DELETE /api/browser-camera/sessions/{id}`: end the owner's session.
-- Each request verifies the Firebase ID token, revocation and active admin role.
+- Session creation/deletion perform fresh Firebase token, revocation and active
+  admin checks. Frame uploads reuse a successful check for the exact same token
+  for at most one second, never beyond the token's expiration. Role changes,
+  account disablement or revocation can therefore take up to one extra second
+  to apply during streaming. Failed checks are never cached, and the cache holds
+  at most one token's authorization result. Session ownership is checked on every
+  frame, including cache hits.
 - Session IDs are random and ownership is checked separately. Another admin
   cannot read or submit to someone else's session. Only one session is supported
   on the laptop, and idle sessions become unavailable after 15 seconds.
