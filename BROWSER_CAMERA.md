@@ -1,9 +1,14 @@
 # Browser webcams and the laptop demo detector
 
-On the `recorded-video` branch, optional local red-event clips are available.
+Optional local red-event clips are available in the integrated browser demo.
 See [RECORDED_VIDEO.md](RECORDED_VIDEO.md) for setup, privacy limitations and
 validation. The metadata-only behaviour below still applies when recording is
 not explicitly enabled on both backend and dashboard.
+
+For teammates running everything on their own laptop, start with the
+[README quick start](README.md#teammate-quick-start). The launcher connects the
+local dashboard and detector without a tunnel. The manual setup below describes
+connecting the hosted dashboard to a laptop instead.
 
 ## Available without backend setup
 
@@ -80,9 +85,11 @@ preview their own camera but cannot initiate incident-producing monitoring.
   The displayed detection FPS measures completed frame round trips, not webcam
   FPS. Uploads are capped at approximately 10 FPS; slow requests start the next
   capture immediately instead of adding a fixed 100 ms pause.
-- No audio, raw frame persistence, Firebase Storage uploads or video recording.
+- No audio, raw frame persistence or Firebase Storage uploads. Without opt-in
+  recording, there is no saved video; see RECORDED_VIDEO.md for the optional path.
 - Recognised events write timestamped `incidents` documents using the dashboard
-  schema, with session-scoped person references and `recordingAvailable: false`.
+  schema, with session-scoped person references and initially
+  `recordingAvailable: false`. Completed opt-in clips update their recording status.
 - The shared detectors now return amber/red levels. Browser events retain those
   levels and display medium/high alerts respectively. Sitting warns at the
   configured fraction before escalating to red; isolation and falls are red,
@@ -92,8 +99,8 @@ preview their own camera but cannot initiate incident-producing monitoring.
   and saved afterward, including when a session closes. Write failures are
   reported on the next frame request or explicit stop.
 - The legacy local-camera service retains your teammate's cropped, face-blurred
-  incident snapshots and `events` collection. Browser detection remains
-  metadata-only in `incidents`; it does not upload snapshots or clips. Neither
+  incident snapshots and `events` collection. Browser detection writes metadata
+  in `incidents`; it does not upload snapshots or clips to cloud storage. Neither
   the raw browser preview nor the processed live view is face-blurred.
 - The detector suppresses duplicate events for an already-alerted track, but
   permits amber-to-red escalation and a later fall after another distress alert.

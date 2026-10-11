@@ -1,6 +1,6 @@
-# Local red-event recordings (recorded-video branch)
+# Local red-event recordings
 
-This branch extends the browser-camera demo. It does not enable Firebase Storage,
+This feature extends the browser-camera demo. It does not enable Firebase Storage,
 change Firestore rules, or deploy itself to Vercel. Existing incidents cannot
 retroactively acquire a video.
 
@@ -40,6 +40,11 @@ recording is a separate output. Firebase receives incident metadata, not footage
 
 ## Run locally
 
+The simplest teammate setup is the [README quick start](README.md#teammate-quick-start):
+`python scripts/run_demo.py --service-account "/absolute/path/to/key.json" --record`.
+It starts both services with matching local origins. The separate-terminal commands
+below are the equivalent manual configuration.
+
 From the repository root on this branch, using your existing compatible Python
 environment:
 
@@ -70,7 +75,7 @@ more seconds for the follow-up. Open **Incidents -> Review**. The player polls
 while the clip finishes; **Alert** jumps to the event position. Operators can read
 completed clips but cannot start monitoring or recording.
 
-Vercel must be deliberately redeployed from this branch to show these controls.
+Vercel must be deployed from code containing this feature to show these controls.
 For a remote demo, run this backend behind the approved authenticated HTTPS tunnel,
 allow the exact dashboard origin and set Vercel's `VITE_BROWSER_DETECTOR_ORIGIN`
 to that tunnel before rebuilding. No private key belongs in Vercel. Moving to a

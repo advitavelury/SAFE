@@ -9,10 +9,11 @@ configure Firebase on their computers. Nothing in this branch automatically
 publishes Firebase rules, provisions users, or deploys a Vercel project.
 
 The dashboard reads the existing `incidents` collection and its `reviews`
-subcollections. The current Python backend writes a different `events` schema.
-Do not change the collection variable to `events`: an adapter, matching review
-workflow and rules are still needed to integrate those records. Admin writes
-must be tested against the deployed rules before treating this as operational.
+subcollections. The browser detector now writes that same incident schema.
+The legacy OpenCV runner still writes a different `events` schema; do not change
+the dashboard collection to `events`. Admin writes must be tested against the
+deployed rules before treating this as operational. For a teammate's local demo,
+use [the README launcher](README.md#teammate-quick-start), not a Vercel deployment.
 
 ## Vercel setup
 
@@ -54,6 +55,7 @@ These are public web configuration values, not Admin SDK credentials.
 | `VITE_FIREBASE_APP_ID` | Web app `appId` |
 | `VITE_FIREBASE_INCIDENTS_COLLECTION` | `incidents` |
 | `VITE_MEDIA_API_ORIGIN` | Leave unset for the initial deployment |
+| `VITE_BROWSER_DETECTOR_ORIGIN` | Verified authenticated laptop backend HTTPS origin, or unset for preview only |
 
 Never put service-account JSON, private keys, passwords, or Firebase ID tokens
 in any `VITE_` variable. All `VITE_` values are browser-visible. The Python
@@ -83,10 +85,13 @@ For optional admin-only detection on the demo laptop, see [Browser camera setup]
 It uses `VITE_BROWSER_DETECTOR_ORIGIN`, not `VITE_MEDIA_API_ORIGIN`, and the new
 `backend.browser_camera_api:create_app` entry point. Keep that variable unset
 until the laptop has its private Firebase credentials and a verified HTTPS
-connection. Browser incident metadata is adapted to `incidents`; video recording
-and remote sharing of the webcam with other viewers are not implemented.
+connection. Browser incident metadata is adapted to `incidents`. Optional redacted
+local red-event clips and authenticated playback are implemented; see
+[recording setup](RECORDED_VIDEO.md). They require a backend and frontend that both
+include this feature. Remote sharing of the live webcam with other viewers is not
+implemented, and clips remain on the backend laptop rather than in Firebase Storage.
 
-With no `VITE_MEDIA_API_ORIGIN`, production builds do not poll camera/clip APIs.
+With neither backend origin configured, production builds do not poll camera/clip APIs.
 They show an unavailable state and hide ineffective media controls. Firebase
 sign-in, incident filters and authorized reviews do not depend on that service.
 Development (`npm run dev`) retains the existing localhost Vite proxy.
@@ -101,11 +106,12 @@ localhost, or a URL containing credentials. The client adds these paths:
 - `GET /api/incidents/{id}/clip`, returning recording metadata.
 - `GET /api/incidents/{id}/clip/file`, returning the recording bytes.
 
-The current FastAPI `/events` and `/video_feed` routes do not implement this
-contract. Merely exposing that server or adding CORS will not make it compatible.
-The next integration task must adapt these clients or provide matching endpoints,
-validate Firebase bearer tokens, allow only the intended frontend origins for
-CORS (including Authorization preflights), and enforce roles on the server.
+The browser detector implements the two clip routes above; its session/frame
+routes are documented in BROWSER_CAMERA.md. The legacy FastAPI `/events` and
+`/video_feed` routes do not implement the facility camera contract above. Merely
+exposing that legacy server or adding CORS will not make it compatible. A future
+facility-feed adapter must validate Firebase bearer tokens, allow only intended
+frontend origins and enforce roles on the server.
 The client sends bearer tokens only to the configured service and rejects
 redirects. Keep the camera machine running; deploying React does not grant a
 cloud server access to its webcam. Never expose an unauthenticated camera tunnel.
@@ -118,14 +124,17 @@ cloud server access to its webcam. Never expose an unauthenticated camera tunnel
   change persists after refresh with a matching review entry.
 - Operator cannot perform those writes, including through a direct request.
 - Inactive/unapproved users cannot view the dashboard or read records.
-- Default production dashboard makes no `/api/camera` or clip requests.
+- With both backend origins unset, the dashboard makes no camera or clip requests.
 - Missing configuration fails the build rather than deploying a broken login.
 - Test on desktop and mobile. Check browser console/network for errors.
 
 Local unit tests and a successful build are not proof of deployed permissions
 or end-to-end camera support. Settings still contain browser-only draft values.
 
-## Local verification - 8 October 2026
+## Historical local verification - 8 October 2026
+
+This section records the initial dashboard-only stage, not the current feature set.
+See BROWSER_CAMERA.md and RECORDED_VIDEO.md for later integration checks.
 
 - All 26 frontend unit tests passed; production build passed with the existing
   large JavaScript bundle warning.
