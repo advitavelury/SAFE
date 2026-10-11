@@ -223,6 +223,7 @@ class Program(ABC):
                             device = 'cpu', # forces CPU regardless of GPU availability,
                             tracker=self.bytetrack_yaml_path,
                             )
+        self.observe_recording_frame(frame, results, frame_time)
         # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame,
         # we can access the result by doing result[0].
         # The .cpu() call moves the tensor from GPU memory to CPU memory.
@@ -267,10 +268,7 @@ class Program(ABC):
                 if pending:
                     active = {'event_type': pending.event_type, 'alert_level': pending.alert_level}
                 if event and self.should_raise(event, active):
-                    snapshot = None
-                    if getattr(self.events, 'stores_images', True):
-                        snapshot = anonymise_event(frame=frame.copy(), all_keypoints=all_kp,
-                            boxes=boxes, all_conf=all_conf, person_index=i)
+                    snapshot = self.prepare_event_frame(frame, all_kp, boxes, all_conf, i, event, frame_time)
                     if person_id in self.pending_events:
                         self.deferred_events[person_id] = (event, snapshot)
                     else:
@@ -292,6 +290,15 @@ class Program(ABC):
             self.current_annotated_frame = display_frame.copy()
 
         return display_frame
+
+    def observe_recording_frame(self, frame, results, frame_time):
+        pass
+
+    def prepare_event_frame(self, frame, all_kp, boxes, all_conf, index, event, frame_time):
+        if getattr(self.events, 'stores_images', True):
+            return anonymise_event(frame=frame.copy(), all_keypoints=all_kp,
+                                   boxes=boxes, all_conf=all_conf, person_index=index)
+        return None
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
         self.extract_keypoints(kp, conf, person)
