@@ -11,16 +11,17 @@ device or a clinically validated emergency system.
 - React dashboard with Firebase staff sign-in, incident filtering and review.
 - YOLO pose + ByteTrack for falls, prolonged sitting, isolation and movement
   outside normal hours. Pacing is not implemented by the current detector.
-- Browser webcam preview, with explicit admin-only upload to a local Python
+- Browser webcam preview, with explicit approved-staff upload to a local Python
   detector. Processed frames show bounding boxes, pose and alert states.
 - Amber/red incidents are saved asynchronously to the shared Firestore
   `incidents` collection used by the dashboard.
 - Optional redacted local MP4 clips for red events, with authenticated playback.
   Amber events are metadata-only. Both backend enablement and the dashboard
   checkbox are required before a red event can trigger recording.
-- Admins can acknowledge, annotate and resolve incidents. Operators are read-only
-  and cannot start detection. They can preview their camera and review available
-  clips. Database rules and backend authorization enforce access, not just labels.
+- Admins can acknowledge, annotate and resolve incidents. Operators have read-only
+  incident access. Both roles can start/stop their own detection session, opt into
+  local recording and review available clips. Detector settings remain admin-only.
+  Database rules and backend authorization enforce access, not just labels.
 
 ## Teammate quick start
 
@@ -62,7 +63,7 @@ install the updated requirements after pulling.
   the key into chat, frontend code, a `VITE_` variable or Git.
 - Use an existing approved staff login in that project. To run detection, its
   `users/{Authentication UID}` profile must contain boolean `active: true` and
-  `role: "admin"`. An `operator` can view but not run detection.
+  `role: "admin"` or `role: "operator"`. Both roles can run detection.
 
 You do NOT create another Firebase project/web app, enable paid cloud video
 storage, or republish rules just to run the demo. An authorized project admin
@@ -98,7 +99,7 @@ Use that exact printed URL, not a stale tab, the Vercel link or a LAN IP.
 
 ### 4. Check detection and review
 
-1. Sign in as an approved **admin**, open Monitor and select **Connect webcam**.
+1. Sign in as approved **staff (admin or operator)**, open Monitor and select **Connect webcam**.
    Grant permission and select your laptop camera if a phone camera is selected.
 2. For a recording test, check **Record red events locally**, then **Start
    detection**. Preview alone does not run YOLO. Only one detector session runs
@@ -122,8 +123,8 @@ has a 250 MiB rolling video limit. Old incidents cannot gain a recording retroac
 
 | Symptom | Check |
 | --- | --- |
-| Dashboard loads, detection is off | Connect webcam, then explicitly Start detection as an admin. |
-| Operator cannot start detection | Expected read-only role; ask the project admin about approved demo access. |
+| Dashboard loads, detection is off | Connect webcam, then explicitly Start detection as approved staff. |
+| Operator cannot start detection | Update and restart both frontend and backend; confirm an active operator profile. |
 | Firebase permission denied | Correct safe-ddacb account/profile and published rules, not public access rules. |
 | Unable to verify staff / start detector | Valid matching service-account file, internet access and backend terminal errors. |
 | Webcam preview but no detection frames | Use the launcher URL, keep its terminal open, check browser/API errors. |

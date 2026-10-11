@@ -51,8 +51,20 @@ class FrameAuthorizerTests(unittest.TestCase):
             self.cache.verify("different")
         self.assertIsNone(self.cache.entry)
 
-    def test_non_admin_and_missing_expiry_are_not_cached(self):
-        for role, expiry in (("operator", 2000), ("admin", 0), ("admin", None), ("admin", float("nan"))):
+    def test_approved_operator_uses_the_same_bounded_cache(self):
+        self.base.verify.return_value = SimpleNamespace(uid="staff", role="operator", expires_at=2000.0)
+        first = self.cache.verify("operator-token")
+        self.now = 0.9
+        self.assertIs(self.cache.verify("operator-token"), first)
+        self.assertEqual(self.base.verify.call_count, 1)
+        self.now = 1.0
+        self.base.verify.side_effect = HTTPException(403, "Access revoked")
+        with self.assertRaises(HTTPException):
+            self.cache.verify("operator-token")
+        self.assertIsNone(self.cache.entry)
+
+    def test_unsupported_roles_and_missing_expiry_are_not_cached(self):
+        for role, expiry in (("visitor", 2000), ("admin", 0), ("operator", 0), ("admin", None), ("admin", float("nan"))):
             self.base.verify.return_value = SimpleNamespace(role=role, expires_at=expiry)
             self.cache.verify("token")
             self.assertIsNone(self.cache.entry)

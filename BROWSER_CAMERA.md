@@ -25,9 +25,10 @@ Stop, its stream is immediately released.
 ## Laptop detection setup
 
 This is a controlled single-camera demo, not unattended aged-care monitoring.
-The laptop must remain awake and online. Only an approved administrator can
-start detection, upload frames or stop their detection session. Operators can
-preview their own camera but cannot initiate incident-producing monitoring.
+The laptop must remain awake and online. Approved admins and operators can
+start detection, upload frames and stop their own detection session. Incident
+editing and detector-settings changes remain admin-only. Starting detection can
+create incident metadata through the backend, but does not grant client write access.
 
 1. Obtain a replacement Firebase Admin service-account JSON for `safe-ddacb`.
    Keep it outside the repository. Supply its path through
@@ -47,7 +48,7 @@ preview their own camera but cannot initiate incident-producing monitoring.
    Firestore. Use one worker: tracking state is in memory.
 3. Provide an HTTPS tunnel to `http://127.0.0.1:8001` using your approved tunnel
    service. Do not disable Firebase authorization or enable wildcard CORS.
-   All ingestion routes require a Firebase bearer token and an active admin
+   All ingestion routes require a Firebase bearer token and an active staff
    profile; the endpoint URL is not a credential. Keep the tunnel running for
    the demonstration and shut it down afterward.
 4. Test the backend and CORS using the exact production frontend origin.
@@ -55,7 +56,7 @@ preview their own camera but cannot initiate incident-producing monitoring.
    `VITE_BROWSER_DETECTOR_ORIGIN`, then redeploy the frontend. Do not use a route,
    `localhost`, or `VITE_MEDIA_API_ORIGIN`. A changing tunnel URL requires another
    frontend build. No Admin SDK key belongs in Vercel for this architecture.
-5. Sign in as an admin, connect the webcam, then explicitly select **Start
+5. Sign in as approved staff, connect the webcam, then explicitly select **Start
    detection**. This starts transmitting reduced-resolution JPEG frames to the
    laptop. Stop detection keeps preview running; Stop webcam stops both.
 
@@ -68,13 +69,13 @@ preview their own camera but cannot initiate incident-producing monitoring.
   update the team's shared thresholds. Changes apply on the next processed
   frame; no threshold-settings UI has been added to the dashboard yet.
 - Session creation/deletion perform fresh Firebase token, revocation and active
-  admin checks. Frame uploads reuse a successful check for the exact same token
+  staff checks. Frame uploads reuse a successful check for the exact same token
   for at most one second, never beyond the token's expiration. Role changes,
   account disablement or revocation can therefore take up to one extra second
   to apply during streaming. Failed checks are never cached, and the cache holds
   at most one token's authorization result. Session ownership is checked on every
   frame, including cache hits.
-- Session IDs are random and ownership is checked separately. Another admin
+- Session IDs are random and ownership is checked separately. Another staff user
   cannot read or submit to someone else's session. Only one session is supported
   on the laptop, and idle sessions become unavailable after 15 seconds.
 - Requests are sequential with no frame backlog. JPEG payloads are capped at

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStaffSession } from './StaffSession.jsx';
-import { canEditIncidents } from './staffAccess.js';
+import { isApprovedStaff } from './staffAccess.js';
 import { mediaOrigin, mediaUrl } from './deploymentConfig.js';
 import { frameMetrics, nextFrameDelay } from './frameTiming.js';
 
@@ -18,7 +18,7 @@ async function request(user, path, options = {}) {
     headers: { Authorization: `Bearer ${token}`, ...options.headers },
   });
   if (!response.ok) {
-    const messages = { 401: 'Sign in again to use detection.', 403: 'Administrator access is required.',
+    const messages = { 401: 'Sign in again to use detection.', 403: 'Approved staff access is required.',
       404: 'Detection session expired. Start detection again.',
       409: 'The detector is in use, or recording is not enabled on this laptop.',
       429: 'The laptop detector is busy. Try again.',
@@ -31,7 +31,7 @@ async function request(user, path, options = {}) {
 export function useBrowserDetection(videoRef, stream, recordRedEvents = false) {
   const session = useStaffSession();
   const user = session?.user;
-  const canControl = session?.status === 'ready' && canEditIncidents(user, session?.profile);
+  const canControl = session?.status === 'ready' && isApprovedStaff(user, session?.profile);
   const [requested, setRequested] = useState(false);
   const [state, setState] = useState({ status: 'idle', message: '' });
   const [image, setImage] = useState(null);

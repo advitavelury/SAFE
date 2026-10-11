@@ -171,20 +171,21 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
         if credentials is None:
             raise HTTPException(401, "Staff sign-in required.")
         staff = verifier.verify(credentials.credentials)
-        if staff.role != "admin":
-            raise HTTPException(403, "Only administrators can start or submit monitoring sessions.")
+        if staff.role not in ("admin", "operator"):
+            raise HTTPException(403, "Approved staff access is required.")
         return staff
 
     def require_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
-        return authorize(credentials, authorizer)
+        staff = authorize(credentials, authorizer)
+        if staff.role != "admin":
+            raise HTTPException(403, "Administrator access is required.")
+        return staff
 
-    def require_frame_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+    def require_frame_staff(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         return authorize(credentials, frame_authorizer)
 
     def require_staff(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
-        if credentials is None:
-            raise HTTPException(401, 'Staff sign-in required.')
-        return authorizer.verify(credentials.credentials)
+        return authorize(credentials, authorizer)
 
     def checked_clip_id(incident_id):
         if not valid_id(incident_id):
@@ -234,7 +235,7 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
         return response
 
     @app.post("/api/browser-camera/sessions")
-    def start(body: StartSession | None = None, staff=Depends(require_admin)):
+    def start(body: StartSession | None = None, staff=Depends(require_staff)):
         try:
             return sessions.start(staff.uid, body.recordRedEvents if body else False)
         except HTTPException:
@@ -243,7 +244,7 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
             raise HTTPException(503, "Detector could not start. Check the laptop's model and Firebase configuration.") from None
 
     @app.post("/api/browser-camera/sessions/{session_id}/frames")
-    async def frame(session_id: str, request: Request, staff=Depends(require_frame_admin)):
+    async def frame(session_id: str, request: Request, staff=Depends(require_frame_staff)):
         if request.headers.get("content-type", "").split(";")[0] != "image/jpeg":
             raise HTTPException(415, "Send image/jpeg frames.")
         body = bytearray()
@@ -261,7 +262,7 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
         return Response(result, media_type="image/jpeg")
 
     @app.delete("/api/browser-camera/sessions/{session_id}", status_code=204)
-    def stop(session_id: str, staff=Depends(require_admin)):
+    def stop(session_id: str, staff=Depends(require_staff)):
         try:
             sessions.stop(staff.uid, session_id)
         except HTTPException:

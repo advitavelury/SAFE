@@ -230,16 +230,18 @@ class PlaybackAuthTests(unittest.TestCase):
     def headers(self, role):
         return {'Authorization': 'Bearer ' + role}
 
-    def test_recording_requires_explicit_admin_opt_in(self):
+    def test_recording_requires_explicit_staff_opt_in(self):
         url = '/api/browser-camera/sessions'
-        self.assertEqual(self.client.post(url, json={'recordRedEvents': True}, headers=self.headers('operator')).status_code, 403)
-        response = self.client.post(url, headers=self.headers('admin'))
-        self.assertFalse(response.json()['recording'])
-        self.recording_factory.assert_not_called()
-        self.client.delete(url+'/'+response.json()['id'], headers=self.headers('admin'))
-        response = self.client.post(url, json={'recordRedEvents': True}, headers=self.headers('admin'))
-        self.assertTrue(response.json()['recording'])
-        self.recording_factory.assert_called_once()
+        for role in ('admin', 'operator'):
+            self.recording_factory.reset_mock()
+            response = self.client.post(url, headers=self.headers(role))
+            self.assertFalse(response.json()['recording'])
+            self.recording_factory.assert_not_called()
+            self.client.delete(url+'/'+response.json()['id'], headers=self.headers(role))
+            response = self.client.post(url, json={'recordRedEvents': True}, headers=self.headers(role))
+            self.assertTrue(response.json()['recording'])
+            self.recording_factory.assert_called_once()
+            self.client.delete(url+'/'+response.json()['id'], headers=self.headers(role))
 
     def test_both_staff_roles_can_play_but_anonymous_and_revoked_cannot(self):
         recorder = IncidentRecorder(self.store, lambda frame, results: np.zeros_like(frame))

@@ -6,7 +6,7 @@ retroactively acquire a video.
 
 ## What is recorded
 
-- Recording defaults OFF on the backend and in the dashboard. An approved admin
+- Recording defaults OFF on the backend and in the dashboard. Approved staff
   must explicitly select **Record red events locally** before Start detection.
 - Only red fall/distress events trigger a clip. Amber events remain metadata-only.
 - The buffer holds up to 3 seconds before and 5 seconds after the event, at up to
@@ -69,11 +69,12 @@ cd front-end
 VITE_BROWSER_DETECTOR_ORIGIN=http://127.0.0.1:8012 npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 ```
 
-Sign in as an approved admin, connect the camera, check the recording checkbox,
+Sign in as approved staff (admin or operator), connect the camera, check the recording checkbox,
 then Start detection. After a red event, leave detection running for at least five
 more seconds for the follow-up. Open **Incidents -> Review**. The player polls
-while the clip finishes; **Alert** jumps to the event position. Operators can read
-completed clips but cannot start monitoring or recording.
+while the clip finishes; **Alert** jumps to the event position. Both roles can run
+their own monitoring/recording session and read clips. Incident edits and detector
+settings remain admin-only.
 
 Vercel must be deployed from code containing this feature to show these controls.
 For a remote demo, run this backend behind the approved authenticated HTTPS tunnel,

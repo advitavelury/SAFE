@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isApprovedStaff, staffAccessErrorMessage, watchStaffAccess } from "../src/api/staffAccess.js";
+import { isApprovedStaff, canEditIncidents, staffAccessErrorMessage, watchStaffAccess } from "../src/api/staffAccess.js";
 
 const user = { uid: "staff-1", isAnonymous: false };
 const admin = { active: true, role: "admin" };
+
+test("operator approval for detection does not grant incident editing", () => {
+  const operator = { active: true, role: "operator" };
+  assert.equal(isApprovedStaff(user, operator), true);
+  assert.equal(canEditIncidents(user, operator), false);
+  assert.equal(canEditIncidents(user, admin), true);
+  assert.equal(isApprovedStaff(user, { ...operator, active: false }), false);
+});
 
 test("only active staff with an explicit supported role are approved", () => {
   for (const role of ["admin", "operator"]) {

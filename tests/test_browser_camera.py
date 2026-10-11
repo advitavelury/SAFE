@@ -20,6 +20,8 @@ from backend.detection.detection_types import DetectionResult
 
 class FakeAuthorizer:
     def verify(self, token):
+        if token == "inactive":
+            raise HTTPException(403, "Staff access not approved")
         if token not in ("admin", "other-admin", "operator"):
             raise HTTPException(401, "Invalid token")
         return SimpleNamespace(uid=token, role="operator" if token == "operator" else "admin")
@@ -54,6 +56,24 @@ class BrowserCameraTests(unittest.TestCase):
         self.detector.close.assert_called_once()
         self.assertEqual(self.start().status_code, 200)
 
+    def test_operator_can_create_process_and_stop_own_session(self):
+        response = self.start("operator")
+        self.assertEqual(response.status_code, 200)
+        session = response.json()["id"]
+        response = self.client.post(f"/api/browser-camera/sessions/{session}/frames",
+            content=self.image, headers=self.headers("operator"))
+        self.assertEqual(response.status_code, 200)
+        self.detector.infer.assert_called_once()
+        self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}",
+            headers=self.headers("operator")).status_code, 204)
+        self.detector.close.assert_called_once()
+
+    def test_operator_cannot_read_or_change_admin_settings(self):
+        path = "/admin/detector-settings"
+        self.assertEqual(self.client.get(path, headers=self.headers("operator")).status_code, 403)
+        self.assertEqual(self.client.patch(path, json={"sitting_seconds": 15.0},
+            headers={"Authorization": "Bearer operator"}).status_code, 403)
+
     def test_frame_cache_does_not_skip_fresh_start_or_stop_checks(self):
         authorizer = Mock()
         authorizer.verify.return_value = SimpleNamespace(uid="admin", role="admin", expires_at=time.time() + 3600)
@@ -68,7 +88,7 @@ class BrowserCameraTests(unittest.TestCase):
         self.assertEqual(authorizer.verify.call_count, 3)
         self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 404)
 
-    def test_frame_cache_rechecks_role_after_one_second(self):
+    def test_frame_cache_rechecks_approval_after_one_second(self):
         authorizer = Mock()
         authorizer.verify.return_value = SimpleNamespace(uid="admin", role="admin", expires_at=time.time() + 3600)
         client = TestClient(create_app(authorizer=authorizer, detector_factory=self.factory,
@@ -76,23 +96,33 @@ class BrowserCameraTests(unittest.TestCase):
         session = client.post("/api/browser-camera/sessions", headers=self.headers()).json()["id"]
         url = f"/api/browser-camera/sessions/{session}/frames"
         self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 200)
-        authorizer.verify.return_value = SimpleNamespace(uid="admin", role="operator", expires_at=time.time() + 3600)
+        authorizer.verify.side_effect = HTTPException(403, "Staff access not approved")
         self.now += 1.0
         self.assertEqual(client.post(url, content=self.image, headers=self.headers()).status_code, 403)
         self.assertEqual(self.detector.infer.call_count, 1)
 
-    def test_anonymous_unapproved_and_operator_cannot_submit_frames(self):
+    def test_anonymous_and_unapproved_staff_cannot_control_sessions(self):
         session = self.start().json()["id"]
-        for headers, status in [({}, 401), (self.headers("invalid"), 401), (self.headers("operator"), 403)]:
+        for headers, status in [({}, 401), (self.headers("invalid"), 401), (self.headers("inactive"), 403)]:
             self.assertEqual(self.client.post("/api/browser-camera/sessions", headers=headers).status_code, status)
             self.assertEqual(self.client.post(f"/api/browser-camera/sessions/{session}/frames", content=self.image, headers=headers).status_code, status)
+            self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}", headers=headers).status_code, status)
         self.detector.infer.assert_not_called()
 
-    def test_sessions_are_owned_not_shared_between_administrators(self):
+    def test_sessions_are_owned_not_shared_between_staff(self):
         session = self.start().json()["id"]
-        self.assertEqual(self.start("other-admin").status_code, 409)
-        self.assertEqual(self.client.post(f"/api/browser-camera/sessions/{session}/frames", content=self.image, headers=self.headers("other-admin")).status_code, 404)
-        self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}", headers=self.headers("other-admin")).status_code, 404)
+        for other in ("other-admin", "operator"):
+            self.assertEqual(self.start(other).status_code, 409)
+            self.assertEqual(self.client.post(f"/api/browser-camera/sessions/{session}/frames", content=self.image, headers=self.headers(other)).status_code, 404)
+            self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}", headers=self.headers(other)).status_code, 404)
+
+    def test_admin_cannot_take_over_operator_session(self):
+        session = self.start("operator").json()["id"]
+        self.assertEqual(self.start("admin").status_code, 409)
+        self.assertEqual(self.client.post(f"/api/browser-camera/sessions/{session}/frames",
+            content=self.image, headers=self.headers("admin")).status_code, 404)
+        self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}",
+            headers=self.headers("admin")).status_code, 404)
 
     def test_expired_sessions_do_not_preserve_tracking_state(self):
         session = self.start().json()["id"]

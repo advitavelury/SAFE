@@ -93,7 +93,7 @@ export default function BrowserCameraStage() {
         <button type="button" onClick={detection.requested ? detection.stop : detection.start}>
           {detection.requested ? <Square size={16}/> : <ScanLine size={16}/>}{detection.requested ? 'Stop detection' : 'Start detection'}
         </button>
-      </> : <p className="browser-camera-status">{detection.enabled ? 'Only administrators can start detection.' : 'Laptop detector not connected.'}</p>}
+      </> : <p className="browser-camera-status">{detection.enabled ? 'Approved staff access is required to start detection.' : 'Laptop detector not connected.'}</p>}
       {detection.message && <p className="browser-camera-status" role={detection.status === 'error' ? 'alert' : 'status'}>{detection.message}</p>}
     </div>}
   </div>;

@@ -81,7 +81,7 @@ staff. It requests camera access only on Connect webcam, never requests audio,
 and stops tracks on navigation, sign-out, camera switch and hidden tabs. Preview
 does not upload or record frames. This is separate from the facility feed below.
 
-For optional admin-only detection on the demo laptop, see [Browser camera setup](BROWSER_CAMERA.md).
+For optional approved-staff detection on the demo laptop, see [Browser camera setup](BROWSER_CAMERA.md).
 It uses `VITE_BROWSER_DETECTOR_ORIGIN`, not `VITE_MEDIA_API_ORIGIN`, and the new
 `backend.browser_camera_api:create_app` entry point. Keep that variable unset
 until the laptop has its private Firebase credentials and a verified HTTPS

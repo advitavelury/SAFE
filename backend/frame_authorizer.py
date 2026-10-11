@@ -25,7 +25,7 @@ class FrameAuthorizer:
             self.entry = None
             principal = self.authorizer.verify(token)
             expiry = getattr(principal, "expires_at", 0)
-            if (principal.role == "admin" and isinstance(expiry, (int, float))
+            if (principal.role in ("admin", "operator") and isinstance(expiry, (int, float))
                     and math.isfinite(expiry) and expiry > self.wall_clock()
                     and self.clock() < now + 1.0):
                 self.entry = (key, now + 1.0, principal)

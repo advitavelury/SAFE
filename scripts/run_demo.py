@@ -160,7 +160,7 @@ def main(argv=None):
         dashboard_url = f'http://127.0.0.1:{frontend_port}'
         wait_ready(frontend, dashboard_url, 200)
         print(f'\nSAFE dashboard: {dashboard_url}\nLocal detector: {backend_url}', flush=True)
-        print('Sign in as an approved admin, connect webcam, then Start detection.', flush=True)
+        print('Sign in as approved staff (admin or operator), connect webcam, then Start detection.', flush=True)
         print('Recording available (checkbox still required).' if args.record else 'Recording disabled.', flush=True)
         print('Ctrl+C stops both services. Stop detection in the dashboard first to finish any clip.\n', flush=True)
         while all(process.poll() is None for process in children):
