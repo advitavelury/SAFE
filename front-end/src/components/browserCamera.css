@@ -1,4 +1,7 @@
 .browser-camera { min-width: 0; }
+.browser-camera-results { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
+.browser-camera-results .camera-source-selector { margin-bottom: 0; }
+.browser-camera-metrics { font-size: 12px; color: #404d50; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .browser-camera-viewport { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 6px; background: #141819; color: #fff; }
 .browser-camera-viewport video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .browser-camera-viewport video[hidden] { display: none; }

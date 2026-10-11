@@ -11,6 +11,7 @@ export default function BrowserCameraStage() {
   const approved = session?.status === 'ready' && isApprovedStaff(session.user, session.profile);
   const uid = session?.user?.uid;
   const [state, setState] = useState(INITIAL_CAMERA_STATE);
+  const [view, setView] = useState('live');
   const controller = useRef(null);
   const video = useRef(null);
   const detection = useBrowserDetection(video, state.stream);
@@ -48,10 +49,19 @@ export default function BrowserCameraStage() {
     <div className="browser-camera-viewport">
       <video ref={video} autoPlay playsInline muted aria-label="Your webcam preview" hidden={!live}
         onError={() => controller.current?.stop('Video preview stopped. Reconnect your camera.')} />
-      {live && detection.image && <img className="browser-camera-overlay" src={detection.image} alt="Latest processed camera frame"/>}
+      {live && view === 'processed' && detection.image && <img className="browser-camera-overlay" src={detection.image} alt="Latest processed camera frame"/>}
       {!live && <div className="browser-camera-placeholder"><CameraOff size={30}/><span>{pending ? 'Connecting webcam' : 'Webcam preview'}</span></div>}
       <span className="browser-camera-label">{live ? detection.requested && detection.status === 'running' ? 'Detection active' : 'Preview only' : 'Camera off'}</span>
     </div>
+    {live && detection.requested && <div className="browser-camera-results">
+      <div className="camera-source-selector" role="group" aria-label="Camera display">
+        <button type="button" aria-pressed={view === 'live'} onClick={() => setView('live')}>Live camera</button>
+        <button type="button" aria-pressed={view === 'processed'} onClick={() => setView('processed')}>Detection frames</button>
+      </div>
+      <span className="browser-camera-metrics" role="status">{detection.metrics
+        ? `Detection: ${detection.metrics.fps.toFixed(1)} fps | ${detection.metrics.latencyMs} ms round trip`
+        : 'Waiting for first detection frame'}</span>
+    </div>}
     <div className="browser-camera-toolbar">
       <div className="browser-camera-select">
         <label htmlFor={selectId}>Camera</label>

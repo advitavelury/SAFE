@@ -61,6 +61,11 @@ preview their own camera but cannot initiate incident-producing monitoring.
 - Requests are sequential with no frame backlog. JPEG payloads are capped at
   500 KB and dimensions at 1280 x 720 before decoding. The browser captures at
   most 640 x 480 for inference. Actual performance depends on laptop hardware.
+- The live camera view stays separate from returned detection frames. Select
+  **Detection frames** to inspect the latest bounding boxes and pose overlays.
+  The displayed detection FPS measures completed frame round trips, not webcam
+  FPS. Uploads are capped at approximately 10 FPS; slow requests start the next
+  capture immediately instead of adding a fixed 100 ms pause.
 - No audio, raw frame persistence, Firebase Storage uploads or video recording.
 - Recognised events write timestamped `incidents` documents using the dashboard
   schema, with session-scoped person references and `recordingAvailable: false`.

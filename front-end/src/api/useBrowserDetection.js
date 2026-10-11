@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStaffSession } from './StaffSession.jsx';
 import { canEditIncidents } from './staffAccess.js';
 import { mediaOrigin, mediaUrl } from './deploymentConfig.js';
+import { frameMetrics, nextFrameDelay } from './frameTiming.js';
 
 const configuredOrigin = import.meta.env.VITE_BROWSER_DETECTOR_ORIGIN;
 const origin = configuredOrigin ? mediaOrigin(configuredOrigin, import.meta.env.DEV) : null;
@@ -34,6 +35,7 @@ export function useBrowserDetection(videoRef, stream) {
   const [requested, setRequested] = useState(false);
   const [state, setState] = useState({ status: 'idle', message: '' });
   const [image, setImage] = useState(null);
+  const [metrics, setMetrics] = useState(null);
   const imageUrl = useRef(null);
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export function useBrowserDetection(videoRef, stream) {
     let disposed = false;
     let sessionId;
     let timer;
+    let previousMetrics = null;
+    setMetrics(null);
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     const clearImage = () => {
@@ -62,6 +66,7 @@ export function useBrowserDetection(videoRef, stream) {
     };
     async function frame() {
       if (disposed) return;
+      const startedAt = performance.now();
       try {
         const video = videoRef.current;
         if (!video || video.readyState < 2 || !video.videoWidth) {
@@ -69,8 +74,10 @@ export function useBrowserDetection(videoRef, stream) {
           return;
         }
         const scale = Math.min(640 / video.videoWidth, 480 / video.videoHeight, 1);
-        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const width = Math.max(1, Math.round(video.videoWidth * scale));
+        const height = Math.max(1, Math.round(video.videoHeight * scale));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.75));
         if (disposed) return;
@@ -86,9 +93,11 @@ export function useBrowserDetection(videoRef, stream) {
         clearImage();
         imageUrl.current = URL.createObjectURL(result);
         setImage(imageUrl.current);
+        previousMetrics = frameMetrics(previousMetrics, performance.now(), startedAt);
+        setMetrics(previousMetrics);
         setState({ status: 'running', message: 'Detection active. Incident metadata is saved to Firebase. No clips recorded.' });
         // Backpressure: never queue webcam frames while an inference request is running.
-        timer = setTimeout(frame, 100);
+        timer = setTimeout(frame, nextFrameDelay(performance.now() - startedAt));
       } catch (error) {
         if (disposed) return;
         clearImage();
@@ -114,11 +123,12 @@ export function useBrowserDetection(videoRef, stream) {
       abort.abort();
       clearTimeout(timer);
       clearImage();
+      setMetrics(null);
       closeSession();
     };
   }, [requested, stream, canControl, user, videoRef]);
 
-  return { ...state, image, requested, canControl, enabled: browserDetectorEnabled,
+  return { ...state, image, metrics, requested, canControl, enabled: browserDetectorEnabled,
     start: () => { if (stream && canControl && browserDetectorEnabled) setRequested(true); },
     stop: () => { setRequested(false); setState({ status: 'idle', message: 'Detection stopped.' }); },
   };
