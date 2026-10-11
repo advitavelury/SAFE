@@ -29,4 +29,5 @@
 .incident-grid,.incident-grid>section,.incident-grid>aside{min-width:0}
 .admin-app{overflow-x:clip}
 .playback-stage video{min-width:0;max-width:100%}
+.table-scroll{position:relative}
 @media(max-width:1150px){.incident-grid{grid-template-columns:minmax(0,1fr)}}

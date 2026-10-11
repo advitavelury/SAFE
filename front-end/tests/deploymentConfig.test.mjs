@@ -51,3 +51,11 @@ test('build validation rejects mixed project, unsupported schema and private cli
   assert.throws(() => validateDeploymentEnv({ ...env, VITE_FIREBASE_SERVICE_ACCOUNT: 'private' }), /private backend/);
   assert.throws(() => validateDeploymentEnv({ ...env, VITE_MEDIA_API_ORIGIN: 'http://localhost:8000' }), /HTTPS/);
 });
+
+test('browser detector is optional and requires a credential-free HTTPS origin in production', () => {
+  assert.doesNotThrow(() => validateDeploymentEnv({ ...env, VITE_BROWSER_DETECTOR_ORIGIN: '' }));
+  assert.doesNotThrow(() => validateDeploymentEnv({ ...env, VITE_BROWSER_DETECTOR_ORIGIN: 'https://detector.example.com' }));
+  for (const origin of ['http://localhost:8001', 'https://localhost:8001', 'https://user:secret@detector.example.com', 'https://detector.example.com/api']) {
+    assert.throws(() => validateDeploymentEnv({ ...env, VITE_BROWSER_DETECTOR_ORIGIN: origin }), /HTTPS/);
+  }
+});

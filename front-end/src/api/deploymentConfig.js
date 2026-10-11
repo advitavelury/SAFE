@@ -41,4 +41,5 @@ export function validateDeploymentEnv(env) {
     && /PRIVATE_KEY|SERVICE_ACCOUNT/.test(key));
   if (privateKeys.length) throw new Error('Remove private backend credentials from VITE_ variables.');
   mediaOrigin(env.VITE_MEDIA_API_ORIGIN);
+  if (env.VITE_BROWSER_DETECTOR_ORIGIN?.trim()) mediaOrigin(env.VITE_BROWSER_DETECTOR_ORIGIN);
 }
