@@ -74,7 +74,7 @@ then Start detection. After a red event, leave detection running for at least fi
 more seconds for the follow-up. An **admin** can open **Incidents -> Review**. The player polls
 while the clip finishes; **Alert** jumps to the event position. Both roles can run
 their own monitoring/recording session, but only admins can play clips. Operators
-can read incident details, not the video. Incident edits and detector settings
+can read incident and clip details, not the video. Incident edits and detector settings
 also remain admin-only.
 
 Vercel must be deployed from code containing this feature to show these controls.
@@ -92,8 +92,9 @@ different laptop does not move old local clips automatically.
   are removed first. Cleanup runs on startup, save/read and approximately every
   minute while the backend runs. When it is off, expired files remain until the
   next startup. Firestore incident records are not deleted by clip cleanup.
-- Playback resolves an incident ID to a managed local path. Both metadata and
-  MP4 requests require a fresh verified Firebase token and active admin profile;
+- Playback resolves an incident ID to a managed local path. Clip metadata requires
+  a fresh verified Firebase token and active staff profile. MP4 requests additionally
+  require the admin role;
   no query-token URLs, public file links, or wildcard CORS are used. Responses are
   no-store. A role change closes the dashboard player and releases its blob URL.
   Previously downloaded footage cannot be recalled from a device.
@@ -119,7 +120,7 @@ Still required before claiming privacy works on real recordings:
    any exposed face, fallback black frame and wrong box/landmark association.
 3. Inspect the recording folder and confirm only redacted MP4/JSON files exist.
    Confirm no raw source or intermediate frame is written or uploaded.
-4. Check admin playback, operator denial, denied/revoked accounts, stopping mid-clip,
+4. Check admin playback, operator clip details with video denied, denied/revoked accounts, stopping mid-clip,
    browser tab hiding, network interruptions and retention cleanup.
 
 Passing the code tests or seeing a red alert alone does not satisfy this checklist.

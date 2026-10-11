@@ -31,6 +31,18 @@ test('unapproved users and non-video responses never become playable blobs', asy
   const request = response => createRecordingRequest({ origin: 'https://detector.test',
     getUser: () => ({ getIdToken: async () => 'token' }), fetchImpl: async () => response });
   await assert.rejects(request(new Response('', { status: 403 }))('id', true), /administrator account is required/);
+  await assert.rejects(request(new Response('', { status: 403 }))('id', false), /Approved staff access is required/);
   await assert.rejects(request(new Response('<html>', { headers: { 'Content-Type': 'text/html' } }))('id', true), /did not return a video/);
   await assert.rejects(createRecordingRequest({ getUser: () => null, origin: null })('id', true), /sign-in required/);
+});
+
+test('clip details are fetched independently without requesting video bytes', async () => {
+  const request = createRecordingRequest({ origin: 'https://detector.test',
+    getUser: () => ({ getIdToken: async () => 'staff-token' }),
+    fetchImpl: async url => {
+      assert.equal(url, 'https://detector.test/api/incidents/id/clip');
+      return Response.json({ status: 'ready', durationSeconds: 8, redacted: true });
+    } });
+  assert.deepEqual(await (await request('id', false)).json(),
+    { status: 'ready', durationSeconds: 8, redacted: true });
 });

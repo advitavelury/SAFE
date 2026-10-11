@@ -16,7 +16,9 @@ export function createRecordingRequest({ getUser, origin, fetchImpl = fetch }) {
       signal: AbortSignal.any([signal, AbortSignal.timeout(file ? 30000 : 5000)].filter(Boolean)),
     });
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Recording access denied. An approved administrator account is required.');
+      throw new Error(file
+        ? 'Recording access denied. An approved administrator account is required.'
+        : 'Recording details access denied. Approved staff access is required.');
     }
     if (response.status === 404) throw new Error('This recording is no longer available on the camera server.');
     if (!response.ok) throw new Error('Unable to load recording. Check the camera service.');

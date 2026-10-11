@@ -123,8 +123,8 @@ cloud server access to its webcam. Never expose an unauthenticated camera tunnel
 - Admin can acknowledge/add a note/resolve a designated test incident, and the
   change persists after refresh with a matching review entry.
 - Operator cannot perform those writes, including through a direct request.
-- Operator can run detection but cannot fetch clip metadata or video bytes, even
-  through a direct API request. Admin playback must work after deployment.
+- Operator can run detection and read incident/clip details, but cannot fetch video
+  bytes, even through a direct API request. Admin playback must work after deployment.
 - Inactive/unapproved users cannot view the dashboard or read records.
 - With both backend origins unset, the dashboard makes no camera or clip requests.
 - Missing configuration fails the build rather than deploying a broken login.

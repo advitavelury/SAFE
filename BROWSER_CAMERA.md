@@ -29,8 +29,8 @@ The laptop must remain awake and online. Approved admins and operators can
 start detection, upload frames and stop their own detection session. Incident
 editing and detector-settings changes remain admin-only. Starting detection can
 create incident metadata through the backend, but does not grant client write access.
-Incident video review is admin-only, including both clip metadata and file routes.
-Operators can view incident details and run detection, but cannot fetch saved video.
+Incident video playback and downloads are admin-only on the clip file route.
+Operators can view incident and clip details and run detection, but cannot fetch saved video.
 
 1. Obtain a replacement Firebase Admin service-account JSON for `safe-ddacb`.
    Keep it outside the repository. Supply its path through

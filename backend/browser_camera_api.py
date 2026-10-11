@@ -192,7 +192,7 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
             raise HTTPException(400, 'Invalid incident ID.')
 
     @app.get('/api/incidents/{incident_id}/clip')
-    def clip_info(incident_id: str, staff=Depends(require_admin)):
+    def clip_info(incident_id: str, staff=Depends(require_staff)):
         checked_clip_id(incident_id)
         if clip_store is None:
             return {'status': 'unavailable', 'message': 'Local recording is not enabled on this laptop.'}

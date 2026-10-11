@@ -93,7 +93,7 @@ Use this local URL, not the Vercel website, for your laptop's demo.
    can then open **Incidents -> Review** to play the clip.
 
 Both staff and admins can start/stop their own detection session. Staff can view
-incident details, but **only admins can play incident videos**, edit incidents or
+incident and clip details, but **only admins can play or download incident videos**, edit incidents or
 change detector settings. One session runs per backend at a time.
 
 **To stop:** stop detection in the dashboard, then press **Ctrl+C** in the terminal.
