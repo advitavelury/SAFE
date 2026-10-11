@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import time
 
 from .detection.detection import Program
-from .event_types import EventType
+from .event_types import EventType, AlertLevel
+from .detector_settings import DetectorSettingsService
 
 
 INCIDENT_TYPES = {
@@ -17,28 +18,34 @@ INCIDENT_TYPES = {
 
 
 class BrowserIncidentWriter:
+    stores_images = False
+
     def __init__(self, db, session_id):
         self.db = db
         self.session_id = session_id
 
-    def create_event(self, person_id, event_type, frame):
+    def create_event(self, person_id, event_type, alert_level, frame=None):
         # Browser sessions save metadata only, never raw frames or face images.
         kind = INCIDENT_TYPES[EventType(event_type)]
+        level = AlertLevel(alert_level)
         now = datetime.now(timezone.utc)
         ref = self.db.collection("incidents").document()
         ref.set({"type": kind, "status": "active", "outcome": "unconfirmed",
                  "zoneId": "A", "personId": f"{self.session_id}:{person_id}",
                  "createdAt": now, "updatedAt": now, "source": "browser-camera",
-                 "sessionId": self.session_id, "recordingAvailable": False}, timeout=5)
-        return SimpleNamespace(id=ref.id)
+                 "sessionId": self.session_id, "recordingAvailable": False,
+                 "alert_level": level.value,
+                 "severity": "high" if level == AlertLevel.RED else "medium"}, timeout=5)
+        return SimpleNamespace(id=ref.id, event_type=EventType(event_type), alert_level=level)
 
 
 class BrowserDetector(Program):
-    def __init__(self, session_id, db=None):
+    def __init__(self, session_id, db=None, settings_service=None):
         if db is None:
             from .firebase_config import production_db
             db = production_db
-        super().__init__(Lock(), events=BrowserIncidentWriter(db, session_id))
+        super().__init__(Lock(), events=BrowserIncidentWriter(db, session_id),
+                         settings_service=settings_service if settings_service is not None else DetectorSettingsService(db))
         self.fps = 0
         self.previous_time = None
 

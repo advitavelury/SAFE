@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from ..person import Person
 from ..frame_context import FrameContext
 from ..overlay import draw_label
-from ...event_types import EventType
+from ...event_types import EventType, AlertLevel
+from ..detection_types import DetectionResult
 
 # Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
 # below the box midpoint so it doesn't overlap the other detectors' labels -
@@ -43,7 +44,7 @@ class WanderingDetector():
     def is_normal_time(self, now: time) -> bool:
         return any(w.contains(now) for w in self.normal_hours)        
 
-    def check_detector(self, ctx: FrameContext, person: Person) -> EventType | None:
+    def check_detector(self, ctx: FrameContext, person: Person) -> DetectionResult | None:
         box_midpoint = person.box_midpoint()
         frame = ctx.frame
         now = datetime.now().time()
@@ -52,7 +53,10 @@ class WanderingDetector():
             label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
             draw_label(frame, f"Person {person.id} wandering detected.", label_point,
                        LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
-            return EventType.WANDERING_DISTRESS
+            return DetectionResult(
+                event_type=EventType.WANDERING_DISTRESS, 
+                alert_level=AlertLevel.AMBER
+                )
         return None 
 
             

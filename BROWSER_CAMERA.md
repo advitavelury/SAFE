@@ -33,8 +33,8 @@ preview their own camera but cannot initiate incident-producing monitoring.
 
    Set `FIREBASE_SERVICE_ACCOUNT` to the actual saved file before running this
    command. This entry point does not open the laptop camera or an OpenCV window.
-   It uses the existing YOLO model and detector thresholds without changing
-   prolonged-sitting behaviour. Use one worker: tracking state is in memory.
+   It uses the shared YOLO model and loads your team's detector thresholds from
+   Firestore. Use one worker: tracking state is in memory.
 3. Provide an HTTPS tunnel to `http://127.0.0.1:8001` using your approved tunnel
    service. Do not disable Firebase authorization or enable wildcard CORS.
    All ingestion routes require a Firebase bearer token and an active admin
@@ -54,6 +54,9 @@ preview their own camera but cannot initiate incident-producing monitoring.
 - `POST /api/browser-camera/sessions`: create one exclusive demo session.
 - `POST /api/browser-camera/sessions/{id}/frames`: JPEG input, JPEG overlay output.
 - `DELETE /api/browser-camera/sessions/{id}`: end the owner's session.
+- `GET/PATCH /admin/detector-settings`: freshly authorized admins can read or
+  update the team's shared thresholds. Changes apply on the next processed
+  frame; no threshold-settings UI has been added to the dashboard yet.
 - Session creation/deletion perform fresh Firebase token, revocation and active
   admin checks. Frame uploads reuse a successful check for the exact same token
   for at most one second, never beyond the token's expiration. Role changes,
@@ -75,8 +78,20 @@ preview their own camera but cannot initiate incident-producing monitoring.
 - No audio, raw frame persistence, Firebase Storage uploads or video recording.
 - Recognised events write timestamped `incidents` documents using the dashboard
   schema, with session-scoped person references and `recordingAvailable: false`.
+- The shared detectors now return amber/red levels. Browser events retain those
+  levels and display medium/high alerts respectively. Sitting warns at the
+  configured fraction before escalating to red; isolation and falls are red,
+  and unusual-hours movement is amber. This is not a pacing detector.
+- Event writes run on two background workers. Duplicate pending alerts are
+  suppressed; a higher-priority alert detected during a pending write is retained
+  and saved afterward, including when a session closes. Write failures are
+  reported on the next frame request or explicit stop.
+- The legacy local-camera service retains your teammate's cropped, face-blurred
+  incident snapshots and `events` collection. Browser detection remains
+  metadata-only in `incidents`; it does not upload snapshots or clips. Neither
+  the raw browser preview nor the processed live view is face-blurred.
 - The detector suppresses duplicate events for an already-alerted track, but
-  permits a later fall to create a separate incident after a lower-priority alert.
+  permits amber-to-red escalation and a later fall after another distress alert.
   Dashboard resolution does not reset this browser session's
   tracking state; restart detection for a new controlled test.
 - Fall timing permits a direct standing-to-lying transition when sampled frames
@@ -106,3 +121,13 @@ of the three produced a fall. One AVI also reported decoder corruption. These
 are limited diagnostic checks, not an accuracy evaluation or a claim that the
 prototype reliably detects falls. Camera framing, tracking continuity, valid
 pose landmarks and processed frame rate remain important limitations.
+
+### Main integration regression (12 October 2026)
+
+Merged main at `fcdde54`, including graded alerts, asynchronous saves, snapshot
+anonymisation, tracker settings and admin threshold endpoints. Repeating the
+offline three-clip check at 10 sampled FPS produced one red fall in
+`Fall test.mp4` and none in the other two clips. Writers were mocked; no test
+incidents or images were uploaded. The merged unit suite passed 64 backend tests
+(one separate pacing placeholder skipped) and 38 frontend tests. Desktop/mobile
+browser fixtures passed camera lifecycle and staff-permission checks.

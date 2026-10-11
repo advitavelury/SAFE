@@ -8,11 +8,16 @@ import os
 import math
 from threading import Lock, Event
 from queue import Queue, Empty
+from concurrent.futures import ThreadPoolExecutor
 
 from .person import Person
+from .anonymise_frame import anonymise_event
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
+from ..event_types import AlertLevel
+from .detection_types import DetectionResult
 from .frame_context import FrameContext
 from ..event_types import EventType
+from ..detector_settings import DetectorSettingsService, apply_detector_settings
 
 
 PLAYBACK_DELAY_MS = 60   # ~16 fps playback; raise to slow down further
@@ -26,7 +31,7 @@ L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
 class Program(ABC):
-    def __init__(self, frame_lock: Lock, events=None):
+    def __init__(self, frame_lock: Lock, events=None, settings_service=None):
         if events is None:
             from ..event import event_service
             events = event_service
@@ -45,9 +50,44 @@ class Program(ABC):
         self.wandering_detector = WanderingDetector([("08:00", "20:00")]) # pass in normal hours in the form of tuples.
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
         self.sitting_detector = SittingDetector(timedelta(hours=2))
+        self.settings_service = settings_service if settings_service is not None else DetectorSettingsService()
+        self._applied_settings = self.settings_service.get()
+        self.apply_settings(self._applied_settings)
         self.completion_queue: Queue[str] = Queue()  # this Queue is used by the API thread too. Passes in events that have been marked completed in the database. 
         self.outstanding_events: dict[str, int] = {}  # Maps an outstanding event in the current session to its person. 
+        self.event_executor = ThreadPoolExecutor(max_workers=2)  # Used when creating an event in the detection loop
+        self.pending_events = {}  # person_id -> Future
+        self.pending_results = {}
+        self.deferred_events = {}
 
+    def close(self):
+        self.event_executor.shutdown(wait=True)
+        self.process_pending_events(flush=True)
+
+    @staticmethod
+    def should_raise(event, active):
+        if active is None:
+            return True
+        return (active['alert_level'] == AlertLevel.AMBER and event.alert_level == AlertLevel.RED
+                or event.event_type == EventType.FALL and active['event_type'] != EventType.FALL)
+
+    def submit_event(self, person_id, event, frame):
+        self.pending_results[person_id] = event
+        self.pending_events[person_id] = self.event_executor.submit(
+            self.events.create_event, person_id=person_id,
+            event_type=event.event_type, alert_level=event.alert_level, frame=frame)
+
+
+    def refresh_detector_settings(self):
+        settings = self.settings_service.take_pending_update()
+        if settings is not None:
+            self.apply_settings(settings)
+            self._applied_settings = settings
+
+    def apply_settings(self, settings):
+        apply_detector_settings(settings, wandering=self.wandering_detector,
+                                sitting=self.sitting_detector,
+                                isolation=self.isolation_detector)
 
     @abstractmethod
     def get_cam(self):
@@ -70,7 +110,7 @@ class Program(ABC):
                 break 
 
             try:
-                person_id = self.outstanding_events.get(event_id, None)
+                person_id = self.outstanding_events.pop(event_id, None)
 
                 if person_id is None: 
                     # Nothing to process. This event may have been from another running session. After the system restarded, it is not in the memory of the program anymore to be processed. 
@@ -78,18 +118,66 @@ class Program(ABC):
 
                 person = self.persons.get(person_id)
 
-                if person is not None and person.active_event_id == event_id:
+                if person is not None and person.active_event_id is not None and person.active_event_id['id'] == event_id:
                     person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again.
                     person.active_event_type = None
 
             finally:
                 self.completion_queue.task_done()
 
+    def process_pending_events(self, flush=False):
+        for person_id, future in list(self.pending_events.items()):
+            if not future.done():
+                continue
+
+            del self.pending_events[person_id]
+            self.pending_results.pop(person_id, None)
+
+            try:
+                created_event = future.result()  # Already done, so won't wait.
+            except Exception:
+                self.deferred_events.pop(person_id, None)
+                raise RuntimeError("Incident saving failed") from None
+
+            self.persons[person_id].active_event_id = {
+                "id": created_event.id,
+                "event_type": created_event.event_type,
+                "alert_level": created_event.alert_level,
+            }
+            self.outstanding_events[created_event.id] = person_id
+            self.persons[person_id].active_event_type = created_event.event_type
+            deferred = self.deferred_events.pop(person_id, None)
+            if deferred and self.should_raise(deferred[0], self.persons[person_id].active_event_id):
+                if flush:
+                    # A brief fall must still be saved when the session stops during an amber write.
+                    event, frame = deferred
+                    self.events.create_event(person_id=person_id, event_type=event.event_type,
+                                             alert_level=event.alert_level, frame=frame)
+                else:
+                    self.submit_event(person_id, *deferred)
+            # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+
+    def get_priority_event(self, events: list[DetectionResult]):
+        if not events:
+            return None
+        urgent_alerts = [] # These are alerts that are of alert level = 'red'
+        non_urgent_alerts = [] # These are alerts that are of alert level = 'amber'
+        for res in events:
+            if res.alert_level == AlertLevel.RED.value:
+                urgent_alerts.append(res)
+            else:
+                non_urgent_alerts.append(res)
+        if urgent_alerts:
+            return urgent_alerts[0]
+        elif non_urgent_alerts:
+            return non_urgent_alerts[0]
+        return None
+
+
     def run(self, stop_event: Event):
         cam = self.get_cam()
         try:
             while not stop_event.is_set():
-                self.process_event_completions() # process any events marked as complete by the API Thread. 
                 ret, frame = cam.read()
 
                 # Exit the loop if the frame was not captured or 'q' is pressed 
@@ -119,8 +207,12 @@ class Program(ABC):
             # Release the capture objects 
             cam.release()
             cv2.destroyAllWindows()
+            self.close()
 
     def process_frame(self, frame, frame_time):
+        self.refresh_detector_settings()
+        self.process_pending_events()
+        self.process_event_completions()
         frame_h, frame_w = frame.shape[0], frame.shape[1]
         annotated_frame = None
 
@@ -138,6 +230,7 @@ class Program(ABC):
             boxes = results[0].boxes.xyxy.numpy().astype(int)
             ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
             all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+            all_conf = results[0].keypoints.conf
             people_in_frame = len(ids)
             annotated_frame = results[0].plot(
                 boxes=True,      # draw bounding boxes
@@ -164,16 +257,24 @@ class Program(ABC):
                 isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
                 sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
 
-                event = fall_event or wandering_event or isolation_event or sitting_event
-                # A lower-priority open alert must not suppress a later fall.
-                fall_escalation = (event == EventType.FALL
-                                   and person.active_event_type is not None
-                                   and person.active_event_type != EventType.FALL)
-                if event and (person.active_event_id is None or fall_escalation):
-                    created_event = self.events.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
-                    person.active_event_id = created_event.id
-                    person.active_event_type = event
-                    self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+                event = self.get_priority_event([result for result in
+                    (fall_event, wandering_event, isolation_event, sitting_event) if result is not None])
+                active = person.active_event_id
+                pending = self.pending_results.get(person_id)
+                deferred = self.deferred_events.get(person_id)
+                if deferred:
+                    pending = deferred[0]
+                if pending:
+                    active = {'event_type': pending.event_type, 'alert_level': pending.alert_level}
+                if event and self.should_raise(event, active):
+                    snapshot = None
+                    if getattr(self.events, 'stores_images', True):
+                        snapshot = anonymise_event(frame=frame.copy(), all_keypoints=all_kp,
+                            boxes=boxes, all_conf=all_conf, person_index=i)
+                    if person_id in self.pending_events:
+                        self.deferred_events[person_id] = (event, snapshot)
+                    else:
+                        self.submit_event(person_id, event, snapshot)
 
         # Write the fps to the frame.
         display_frame = frame if annotated_frame is None else annotated_frame

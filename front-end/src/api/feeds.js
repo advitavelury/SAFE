@@ -57,6 +57,8 @@ function normaliseIncident(doc) {
     note: data.note,
     responder: data.responder,
     outcome: data.outcome,
+    alert_level: data.alert_level,
+    severity: data.severity,
     updatedAt: data.updatedAt ? toDate(data.updatedAt) : null,
     source: data.source,
     personId: data.personId || data.person_id,

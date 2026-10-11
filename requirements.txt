@@ -1,7 +1,5 @@
 firebase-admin
 fastapi
-flask
-imageio-ffmpeg>=0.6,<0.7
 mediapipe
 numpy
 opencv-python

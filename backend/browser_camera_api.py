@@ -3,6 +3,7 @@ import io
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from threading import Lock
 
 import cv2
@@ -17,6 +18,8 @@ from starlette.concurrency import run_in_threadpool
 
 from .staff_auth import StaffAuthorizer
 from .frame_authorizer import FrameAuthorizer
+from .detector_settings import (DetectorSettingsService, DetectorSettings,
+                               DetectorSettingsPatch, SettingsUnavailable)
 
 MAX_FRAME_BYTES = 500_000
 SESSION_IDLE_SECONDS = 15
@@ -48,7 +51,16 @@ class BrowserSessions:
 
     def _expire(self):
         if self.session and self.clock() - self.session["seen"] > SESSION_IDLE_SECONDS:
-            self.session = None
+            self._close()
+
+    def _close(self):
+        session, self.session = self.session, None
+        if session:
+            session['detector'].close()
+
+    def close(self):
+        with self.lock:
+            self._close()
 
     def start(self, uid):
         with self.lock:
@@ -83,22 +95,29 @@ class BrowserSessions:
     def stop(self, uid, session_id):
         with self.lock:
             self._owned(uid, session_id)
-            self.session = None
+            self._close()
 
 
-def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=time.monotonic):
+def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=time.monotonic,
+               settings_service=None):
     authorizer = authorizer or StaffAuthorizer()
     frame_authorizer = FrameAuthorizer(authorizer, clock=clock)
+    settings_service = settings_service if settings_service is not None else DetectorSettingsService()
     if detector_factory is None:
         from .browser_detection import BrowserDetector
-        detector_factory = BrowserDetector
+        detector_factory = lambda session_id: BrowserDetector(session_id, settings_service=settings_service)
     sessions = BrowserSessions(detector_factory, clock)
     allowed = origins if origins is not None else [value.strip() for value in
         os.environ.get("SAFE_WEB_ORIGINS", PRODUCTION_ORIGIN).split(",") if value.strip()]
     if not allowed or "*" in allowed:
         raise ValueError("SAFE_WEB_ORIGINS must list the explicit approved frontend origins.")
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(CORSMiddleware, allow_origins=allowed, allow_methods=["POST", "DELETE"],
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        await run_in_threadpool(sessions.close)
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.add_middleware(CORSMiddleware, allow_origins=allowed, allow_methods=["GET", "PATCH", "POST", "DELETE"],
                        allow_headers=["Authorization", "Content-Type"], allow_credentials=False)
     bearer = HTTPBearer(auto_error=False)
 
@@ -115,6 +134,20 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
 
     def require_frame_admin(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         return authorize(credentials, frame_authorizer)
+
+    @app.get("/admin/detector-settings", response_model=DetectorSettings)
+    def get_settings(staff=Depends(require_admin)):
+        try:
+            return settings_service.get()
+        except SettingsUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @app.patch("/admin/detector-settings", response_model=DetectorSettings)
+    def update_settings(body: DetectorSettingsPatch, staff=Depends(require_admin)):
+        try:
+            return settings_service.update(body, updated_by=staff.uid)
+        except SettingsUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
 
     @app.middleware("http")
     async def private_responses(request, call_next):
@@ -152,7 +185,12 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
 
     @app.delete("/api/browser-camera/sessions/{session_id}", status_code=204)
     def stop(session_id: str, staff=Depends(require_admin)):
-        sessions.stop(staff.uid, session_id)
+        try:
+            sessions.stop(staff.uid, session_id)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(503, "Incident saving failed while stopping detection.") from None
         return Response(status_code=204)
 
     return app

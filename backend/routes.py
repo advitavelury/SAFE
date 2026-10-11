@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 
 from .event_types import Event
 from .staff_auth import StaffAuthorizer
+from .detector_settings import (
+    DetectorSettings, DetectorSettingsPatch, SettingsUnavailable,
+)
 
 
 class CompleteEventRequest(BaseModel):
@@ -12,7 +15,7 @@ class CompleteEventRequest(BaseModel):
     completed_by: str | None = Field(default=None, min_length=1)
 
 
-def setup_routes(streamer, program, *, authorizer=None, events=None):
+def setup_routes(streamer, program, *, authorizer=None, events=None, settings=None):
     authorizer = authorizer or StaffAuthorizer()
     if events is None:
         from .event import event_service
@@ -31,6 +34,24 @@ def setup_routes(streamer, program, *, authorizer=None, events=None):
         return staff
 
     app = FastAPI(dependencies=[Depends(require_staff)])
+
+    def detector_settings_service():
+        # The API and detectors must use the same service instance.
+        return settings if settings is not None else program.settings_service
+
+    @app.get("/admin/detector-settings", response_model=DetectorSettings)
+    def get_detector_settings(staff=Depends(require_admin)):
+        try:
+            return detector_settings_service().get()
+        except SettingsUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @app.patch("/admin/detector-settings", response_model=DetectorSettings)
+    def update_detector_settings(body: DetectorSettingsPatch, staff=Depends(require_admin)):
+        try:
+            return detector_settings_service().update(body, updated_by=staff.uid)
+        except SettingsUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
 
     @app.exception_handler(HTTPException)
     async def api_error(request, exc):

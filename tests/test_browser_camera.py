@@ -3,6 +3,7 @@ import time
 from types import SimpleNamespace
 from threading import Lock
 from queue import Queue
+from concurrent.futures import Future
 from unittest.mock import Mock
 
 import cv2
@@ -13,7 +14,8 @@ from fastapi.testclient import TestClient
 
 from backend.browser_camera_api import create_app, MAX_FRAME_BYTES, SESSION_IDLE_SECONDS
 from backend.browser_detection import BrowserIncidentWriter, BrowserDetector
-from backend.event_types import EventType
+from backend.event_types import EventType, AlertLevel
+from backend.detection.detection_types import DetectionResult
 
 
 class FakeAuthorizer:
@@ -49,6 +51,7 @@ class BrowserCameraTests(unittest.TestCase):
         self.assertEqual(response.headers["access-control-allow-origin"], self.origin)
         self.detector.infer.assert_called_once()
         self.assertEqual(self.client.delete(f"/api/browser-camera/sessions/{session}", headers=self.headers()).status_code, 204)
+        self.detector.close.assert_called_once()
         self.assertEqual(self.start().status_code, 200)
 
     def test_frame_cache_does_not_skip_fresh_start_or_stop_checks(self):
@@ -96,6 +99,7 @@ class BrowserCameraTests(unittest.TestCase):
         self.now += SESSION_IDLE_SECONDS + 1
         self.assertEqual(self.client.post(f"/api/browser-camera/sessions/{session}/frames", content=self.image, headers=self.headers()).status_code, 404)
         self.assertNotEqual(self.start().json()["id"], session)
+        self.detector.close.assert_called_once()
         self.assertEqual(self.factory.call_count, 2)
 
     def test_reject_oversized_invalid_and_wrong_content_type_frames(self):
@@ -128,69 +132,138 @@ class BrowserCameraTests(unittest.TestCase):
         writer = BrowserIncidentWriter(db, "session-1")
         for kind, expected in [(EventType.FALL, "fall"), (EventType.SITTING_DISTRESS, "prolonged_sitting"),
                                (EventType.ISOLATION_DISTRESS, "isolation"), (EventType.WANDERING_DISTRESS, "wandering")]:
-            result = writer.create_event(2, kind, self.image)
+            result = writer.create_event(2, kind, AlertLevel.RED, self.image)
             self.assertEqual(result.id, "incident-1")
             data = ref.set.call_args.args[0]
             self.assertEqual(data["type"], expected)
             self.assertEqual(data["personId"], "session-1:2")
             self.assertEqual(data["status"], "active")
+            self.assertEqual(data["alert_level"], "red")
+            self.assertEqual(data["severity"], "high")
+            self.assertEqual(result.event_type, kind)
             self.assertIs(data["recordingAvailable"], False)
             self.assertNotIn("frame", data)
             self.assertNotIn("image_path", data)
         db.collection.assert_called_with("incidents")
+        writer.create_event(2, EventType.SITTING_DISTRESS, AlertLevel.AMBER)
+        self.assertEqual(ref.set.call_args.args[0]['severity'], 'medium')
 
-    def test_shared_frame_pipeline_runs_all_detectors_and_suppresses_duplicate_track_alerts(self):
-        detector = BrowserDetector.__new__(BrowserDetector)
+class SharedPipelineTests(unittest.TestCase):
+    def setUp(self):
+        self.detector = detector = BrowserDetector.__new__(BrowserDetector)
         detector.fps = 10
         detector.frame_lock = Lock()
         detector.persons = {}
         detector.outstanding_events = {}
+        detector.completion_queue = Queue()
+        detector.pending_events = {}
+        detector.pending_results = {}
+        detector.deferred_events = {}
+        detector.settings_service = Mock()
+        detector.settings_service.take_pending_update.return_value = None
         detector.bytetrack_yaml_path = "fixture.yaml"
-        detector.events = Mock()
-        detector.events.create_event.return_value.id = "event-1"
+        detector.events = Mock(stores_images=False)
+        detector.event_executor = Mock()
+        self.jobs = []
+        def submit(fn, **kwargs):
+            future = Future()
+            self.jobs.append((future, kwargs))
+            return future
+        detector.event_executor.submit.side_effect = submit
         detector.update_person_properties = Mock()
-        detectors = [Mock() for _ in range(4)]
-        for item in detectors:
+        self.detectors = [Mock() for _ in range(4)]
+        for item in self.detectors:
             item.check_detector.return_value = None
-        detectors[0].check_detector.return_value = EventType.FALL
-        detector.fall_detector, detector.wandering_detector, detector.isolation_detector, detector.sitting_detector = detectors
-        frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        detector.fall_detector, detector.wandering_detector, detector.isolation_detector, detector.sitting_detector = self.detectors
+        self.frame = np.zeros((240, 320, 3), dtype=np.uint8)
         result = SimpleNamespace(
             boxes=SimpleNamespace(id=torch.tensor([1]), xyxy=torch.tensor([[0, 0, 100, 200]])),
             keypoints=SimpleNamespace(xy=torch.zeros((1, 17, 2)), conf=torch.ones((1, 17))),
-            plot=lambda **kwargs: frame.copy())
+            plot=lambda **kwargs: self.frame.copy())
         detector.model = Mock()
         detector.model.track.return_value = [result]
-        for now in [1.0, 2.0]:
-            self.assertEqual(detector.process_frame(frame, now).shape, frame.shape)
-        for item in detectors:
-            self.assertEqual(item.check_detector.call_count, 2)
-            self.assertEqual(item.check_detector.call_args.kwargs["ctx"].frame_time, 2.0)
-        detector.events.create_event.assert_called_once()
-        self.assertEqual(detector.persons[1].active_event_id, "event-1")
 
-        # A new track can raise a fall after an earlier lower-priority alert.
-        detector.persons = {}
-        detector.outstanding_events = {}
-        detector.events.reset_mock()
-        detector.events.create_event.side_effect = [SimpleNamespace(id="movement-1"), SimpleNamespace(id="fall-1")]
-        detectors[0].check_detector.return_value = None
-        detectors[1].check_detector.return_value = EventType.WANDERING_DISTRESS
-        detector.process_frame(frame, 3.0)
-        detectors[0].check_detector.return_value = EventType.FALL
-        detector.process_frame(frame, 4.0)
-        detector.process_frame(frame, 5.0)
-        self.assertEqual(detector.events.create_event.call_count, 2)
-        self.assertEqual(detector.persons[1].active_event_type, EventType.FALL)
-        self.assertEqual(detector.persons[1].active_event_id, "fall-1")
-        detector.completion_queue = Queue()
-        detector.enqueue_event_completion("movement-1")
-        detector.process_event_completions()
-        self.assertEqual(detector.persons[1].active_event_id, "fall-1")
-        detector.enqueue_event_completion("fall-1")
-        detector.process_event_completions()
-        self.assertIsNone(detector.persons[1].active_event_id)
-        self.assertIsNone(detector.persons[1].active_event_type)
+    def tick(self, now=1.0):
+        self.assertEqual(self.detector.process_frame(self.frame, now).shape, self.frame.shape)
+
+    def finish(self, index, event_id):
+        future, job = self.jobs[index]
+        future.set_result(SimpleNamespace(id=event_id, event_type=job['event_type'], alert_level=job['alert_level']))
+        self.detector.process_pending_events()
+
+    def test_all_detectors_run_and_pending_and_active_alerts_are_deduplicated(self):
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.tick(2.0)
+        self.assertEqual(len(self.jobs), 1)
+        for item in self.detectors:
+            self.assertEqual(item.check_detector.call_count, 2)
+        self.finish(0, 'fall-1')
+        self.tick()
+        self.assertEqual(len(self.jobs), 1)
+        self.assertEqual(self.detector.persons[1].active_event_id['id'], 'fall-1')
+        self.assertIsNone(self.jobs[0][1]['frame'])
+
+    def test_amber_to_red_escalation_and_completion_only_clears_matching_event(self):
+        self.detectors[3].check_detector.return_value = DetectionResult(EventType.SITTING_DISTRESS, AlertLevel.AMBER)
+        self.tick()
+        self.finish(0, 'amber-1')
+        self.detectors[3].check_detector.return_value = DetectionResult(EventType.SITTING_DISTRESS, AlertLevel.RED)
+        self.tick()
+        self.finish(1, 'red-1')
+        self.detector.enqueue_event_completion('amber-1')
+        self.detector.process_event_completions()
+        self.assertEqual(self.detector.persons[1].active_event_id['id'], 'red-1')
+        self.detector.enqueue_event_completion('red-1')
+        self.detector.process_event_completions()
+        self.assertIsNone(self.detector.persons[1].active_event_id)
+
+    def test_fall_escalates_after_existing_red_distress(self):
+        self.detectors[2].check_detector.return_value = DetectionResult(EventType.ISOLATION_DISTRESS, AlertLevel.RED)
+        self.tick()
+        self.finish(0, 'isolation-1')
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.finish(1, 'fall-1')
+        self.assertEqual(self.detector.persons[1].active_event_type, EventType.FALL)
+
+    def test_brief_fall_is_retained_while_amber_write_is_pending(self):
+        self.detectors[1].check_detector.return_value = DetectionResult(EventType.WANDERING_DISTRESS, AlertLevel.AMBER)
+        self.tick()
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.detectors[0].check_detector.return_value = None
+        self.tick()
+        self.assertEqual(len(self.jobs), 1)
+        self.finish(0, 'amber-1')
+        self.assertEqual(len(self.jobs), 2)
+        self.assertEqual(self.jobs[1][1]['event_type'], EventType.FALL)
+        self.finish(1, 'fall-1')
+        self.tick()
+        self.assertEqual(len(self.jobs), 2)
+
+    def test_async_write_failure_is_reported(self):
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.jobs[0][0].set_exception(RuntimeError('private details'))
+        with self.assertRaisesRegex(RuntimeError, '^Incident saving failed$'):
+            self.tick()
+
+    def test_red_distress_takes_priority_over_amber_movement(self):
+        self.detectors[1].check_detector.return_value = DetectionResult(EventType.WANDERING_DISTRESS, AlertLevel.AMBER)
+        self.detectors[2].check_detector.return_value = DetectionResult(EventType.ISOLATION_DISTRESS, AlertLevel.RED)
+        self.tick()
+        self.assertEqual(self.jobs[0][1]['event_type'], EventType.ISOLATION_DISTRESS)
+
+    def test_close_flushes_a_deferred_fall(self):
+        self.detectors[1].check_detector.return_value = DetectionResult(EventType.WANDERING_DISTRESS, AlertLevel.AMBER)
+        self.tick()
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.jobs[0][0].set_result(SimpleNamespace(id='amber', event_type=EventType.WANDERING_DISTRESS, alert_level=AlertLevel.AMBER))
+        self.detector.close()
+        self.detector.event_executor.shutdown.assert_called_once_with(wait=True)
+        self.assertEqual(self.detector.events.create_event.call_args.kwargs['event_type'], EventType.FALL)
 
 
 if __name__ == "__main__":

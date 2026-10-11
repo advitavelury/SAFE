@@ -5,6 +5,15 @@ import { toAdminEvent } from '../src/api/incidentAdapter.js';
 const incident = { id: 'fall-test', type: 'fall', status: 'active', zoneId: 'A',
   ts: new Date('2026-10-01T00:00:00Z'), personId: '7', note: 'TEST ONLY', source: 'safe-integration-test' };
 
+test('detector amber/red levels override type-based demo colours', () => {
+  for (const type of ['fall', 'prolonged_sitting', 'isolation', 'wandering']) {
+    assert.equal(toAdminEvent({ ...incident, type, alert_level: 'red' }).severity, 'high');
+    assert.equal(toAdminEvent({ ...incident, type, alert_level: 'amber' }).severity, 'medium');
+  }
+  assert.equal(toAdminEvent({ ...incident, severity: 'low' }).severity, 'low');
+  assert.equal(toAdminEvent({ ...incident, severity: 'invalid' }).severity, 'high');
+});
+
 test('administrator review outcome and update time survive the live adapter', () => {
   const updatedAt = new Date('2026-10-01T01:00:00Z');
   const event = toAdminEvent({ ...incident, status: 'resolved', outcome: 'false_alarm', updatedAt, responder: 'admin-uid' });
