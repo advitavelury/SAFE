@@ -74,6 +74,18 @@ backend's `FIREBASE_SERVICE_ACCOUNT` does not belong in this static frontend.
 
 ## Camera and playback
 
+The dashboard now also supports a local browser webcam preview for approved
+staff. It requests camera access only on Connect webcam, never requests audio,
+and stops tracks on navigation, sign-out, camera switch and hidden tabs. Preview
+does not upload or record frames. This is separate from the facility feed below.
+
+For optional admin-only detection on the demo laptop, see [Browser camera setup](BROWSER_CAMERA.md).
+It uses `VITE_BROWSER_DETECTOR_ORIGIN`, not `VITE_MEDIA_API_ORIGIN`, and the new
+`backend.browser_camera_api:create_app` entry point. Keep that variable unset
+until the laptop has its private Firebase credentials and a verified HTTPS
+connection. Browser incident metadata is adapted to `incidents`; video recording
+and remote sharing of the webcam with other viewers are not implemented.
+
 With no `VITE_MEDIA_API_ORIGIN`, production builds do not poll camera/clip APIs.
 They show an unavailable state and hide ineffective media controls. Firebase
 sign-in, incident filters and authorized reviews do not depend on that service.

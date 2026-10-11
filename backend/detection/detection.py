@@ -12,7 +12,6 @@ from queue import Queue, Empty
 from .person import Person
 from .detectors import FallDetector, WanderingDetector, IsolationDetector, SittingDetector
 from .frame_context import FrameContext
-from ..event import event_service
 from ..event_types import EventType
 
 
@@ -27,7 +26,11 @@ L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
 class Program(ABC):
-    def __init__(self, frame_lock: Lock):
+    def __init__(self, frame_lock: Lock, events=None):
+        if events is None:
+            from ..event import event_service
+            events = event_service
+        self.events = events
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
@@ -83,7 +86,6 @@ class Program(ABC):
 
     def run(self, stop_event: Event):
         cam = self.get_cam()
-        model = self.model
         try:
             while not stop_event.is_set():
                 self.process_event_completions() # process any events marked as complete by the API Thread. 
@@ -99,71 +101,7 @@ class Program(ABC):
 
                 if self.is_video_mode():
                     self.frame_index += 1 
-                frame_h, frame_w = frame.shape[0], frame.shape[1]
-                annotated_frame = None 
-
-                frame_time =  self.get_frame_time()  
-
-                fps_text = f"FPS: {int(self.fps)}"
-                results = model.track(source=frame, 
-                                    persist=True, 
-                                    classes = [0], # only track class 0 = person,
-                                    device = 'cpu', # forces CPU regardless of GPU availability,
-                                    tracker=self.bytetrack_yaml_path,
-                                    )
-                # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame, 
-                # we can access the result by doing result[0]. 
-                # The .cpu() call moves the tensor from GPU memory to CPU memory.
-                if results and results[0].boxes.id is not None: # results seems to never be None. We can only tell if no person is in the frame through id attribute being None
-                    boxes = results[0].boxes.xyxy.numpy().astype(int)
-                    ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
-                    all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
-                    people_in_frame = len(ids)
-                    annotated_frame = results[0].plot(
-                        boxes=True,      # draw bounding boxes
-                        kpt_line=True,   # draw skeleton lines between keypoints
-                        kpt_radius=5,    # keypoint dot size
-                        labels=True,     # draw class + track ID labels
-                    )
-                    for i, person_id in enumerate(ids):
-                        person = self.persons.get(person_id)  # obtain the person object
-                        if person is None:
-                            person = Person(person_id)
-                            self.persons[person_id] = person
-                        box = boxes[i]
-                        kp = all_kp[i]  # keypoints of a person
-                        confidence = results[0].keypoints.conf[i]
-                        self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
-                        frame_context = FrameContext(
-                            frame=annotated_frame, 
-                            frame_time=frame_time, 
-                            occupancy=people_in_frame
-                        )
-                        fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                        wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
-                        isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                        sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
-
-                        event = fall_event or wandering_event or isolation_event or sitting_event
-                        if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event. 
-                            created_event = event_service.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
-                            person.active_event_id = created_event.id
-                            self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
-                            
-                # Write the fps to the frame.    
-                display_frame = frame if annotated_frame is None else annotated_frame
-                cv2.putText(
-                        display_frame, 
-                        fps_text, 
-                        (10, 40),                   # Coordinates (X, Y)
-                        cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                        1,                          # Font scale
-                        (0, 255, 0),                # Color (BGR format: Green)
-                        2,                          # Line thickness
-                        cv2.LINE_AA
-                    )
-                with self.frame_lock: # variable is shared by the FrameStreamer method
-                    self.current_annotated_frame = display_frame.copy()
+                display_frame = self.process_frame(frame, self.get_frame_time())
 
                 cv2.imshow('frame', display_frame)
 
@@ -180,6 +118,73 @@ class Program(ABC):
             # Release the capture objects 
             cam.release()
             cv2.destroyAllWindows()
+
+    def process_frame(self, frame, frame_time):
+        frame_h, frame_w = frame.shape[0], frame.shape[1]
+        annotated_frame = None
+
+        fps_text = f"FPS: {int(self.fps)}"
+        results = self.model.track(source=frame,
+                            persist=True,
+                            classes = [0], # only track class 0 = person,
+                            device = 'cpu', # forces CPU regardless of GPU availability,
+                            tracker=self.bytetrack_yaml_path,
+                            )
+        # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame,
+        # we can access the result by doing result[0].
+        # The .cpu() call moves the tensor from GPU memory to CPU memory.
+        if results and results[0].boxes.id is not None: # results seems to never be None. We can only tell if no person is in the frame through id attribute being None
+            boxes = results[0].boxes.xyxy.numpy().astype(int)
+            ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
+            all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+            people_in_frame = len(ids)
+            annotated_frame = results[0].plot(
+                boxes=True,      # draw bounding boxes
+                kpt_line=True,   # draw skeleton lines between keypoints
+                kpt_radius=5,    # keypoint dot size
+                labels=True,     # draw class + track ID labels
+            )
+            for i, person_id in enumerate(ids):
+                person = self.persons.get(person_id)  # obtain the person object
+                if person is None:
+                    person = Person(person_id)
+                    self.persons[person_id] = person
+                box = boxes[i]
+                kp = all_kp[i]  # keypoints of a person
+                confidence = results[0].keypoints.conf[i]
+                self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
+                frame_context = FrameContext(
+                    frame=annotated_frame,
+                    frame_time=frame_time,
+                    occupancy=people_in_frame
+                )
+                fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+
+                event = fall_event or wandering_event or isolation_event or sitting_event
+                if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event.
+                    created_event = self.events.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
+                    person.active_event_id = created_event.id
+                    self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
+
+        # Write the fps to the frame.
+        display_frame = frame if annotated_frame is None else annotated_frame
+        cv2.putText(
+                display_frame,
+                fps_text,
+                (10, 40),                   # Coordinates (X, Y)
+                cv2.FONT_HERSHEY_SIMPLEX,   # Font type
+                1,                          # Font scale
+                (0, 255, 0),                # Color (BGR format: Green)
+                2,                          # Line thickness
+                cv2.LINE_AA
+            )
+        with self.frame_lock: # variable is shared by the FrameStreamer method
+            self.current_annotated_frame = display_frame.copy()
+
+        return display_frame
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
         self.extract_keypoints(kp, conf, person)
