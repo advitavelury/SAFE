@@ -79,7 +79,8 @@ class Program(ABC):
                 person = self.persons.get(person_id)
 
                 if person is not None and person.active_event_id == event_id:
-                    person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again. 
+                    person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again.
+                    person.active_event_type = None
 
             finally:
                 self.completion_queue.task_done()
@@ -164,9 +165,14 @@ class Program(ABC):
                 sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
 
                 event = fall_event or wandering_event or isolation_event or sitting_event
-                if event and person.active_event_id is None: # if there is an event raised by the detectors and the person doesn't have any active pending events then raise an event.
+                # A lower-priority open alert must not suppress a later fall.
+                fall_escalation = (event == EventType.FALL
+                                   and person.active_event_type is not None
+                                   and person.active_event_type != EventType.FALL)
+                if event and (person.active_event_id is None or fall_escalation):
                     created_event = self.events.create_event(person_id=person_id ,event_type=event, frame=annotated_frame)
                     person.active_event_id = created_event.id
+                    person.active_event_type = event
                     self.outstanding_events[created_event.id] = person_id # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
 
         # Write the fps to the frame.

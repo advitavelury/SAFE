@@ -28,8 +28,7 @@ class FallDetector():
         self.person_posture : dict[int, str] = {}
 
     def alert_fall_event(self, person: Person, frame_time) -> bool: 
-        # if a person has been "lying down" for more than 5 seconds, then alert a fall event
-        # works under the assumptiont that the application is running at a minimum of 10 fps 
+        # Elapsed-time persistence also works when uploaded frames arrive slowly.
         person_id = person.id
         current_position = self.person_posture.get(person_id)
         if current_position is None:
@@ -58,7 +57,8 @@ class FallDetector():
             else:
                 self.person_posture[person_id] = posture
         elif posture.lower() == "lying down":
-            if current_position in ("falling", "sitting") and person.down_since is None:  # if only the person was falling and then lying down should we flag it as a fall
+            # A sampled feed may miss the intermediate falling posture entirely.
+            if current_position in ("standing", "falling", "sitting") and person.down_since is None:
                 person.down_since = frame_time # start the down since timer 
             person.upright_since = None # reset the upright since flag to None since the person as possibly fallen. 
             self.person_posture[person_id] = posture
@@ -70,6 +70,8 @@ class FallDetector():
         frame_time = ctx.frame_time
         posture = self.classify_posture(person=person)
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
+            draw_label(frame, "Fall: pose unclear", person.box_midpoint(),
+                       LABEL_FONT_SCALE, (0, 191, 255), LABEL_THICKNESS)
             return None  
         position = self.manage_person_posture(posture, person=person, frame_time=frame_time)
         print(f"The posture I classified is {posture}, the posture I am appointing is {position}")
@@ -102,6 +104,8 @@ class FallDetector():
         # person's apparent size (i.e. their distance from the camera) without
         # changing much between postures.
         torso_len = person.torso_len
+        if torso_len is None or torso_len <= 0 or person.torso_angle is None:
+            return None
         x1, y1, x2, y2 = person.box_coords
 
         shoulder_width = person.get_shoulder_width()
@@ -111,7 +115,7 @@ class FallDetector():
         box_width = abs(x2-x1)
         box_height = abs(y2-y1)
         ratio_shoulder = abs(box_height/shoulder_width) if shoulder_width else None
-        ratio_box = abs(box_height/box_width)
+        ratio_box = box_height / max(box_width, 1)
         
         print(f"Shoulder width is {shoulder_width}, torso len is {torso_len}, frontality ratio is {frontality_ratio}")
 
@@ -129,7 +133,7 @@ class FallDetector():
         print(f"The current box ratio is {ratio_box} and median is {box_baseline} and their ratio is { box_current_vs_median}")
 
         # CHECK IF THE PERSON IS SITTING 
-        if frontality_ratio is not None and frontality_ratio >= 0.60:
+        if torso_angle < lying_threshold and frontality_ratio is not None and frontality_ratio >= 0.60:
             sitting_checks = 0
             sitting_votes = 0
             hip_knee_height_ratio = None 
@@ -165,7 +169,7 @@ class FallDetector():
             if sitting_checks and sitting_votes/sitting_checks > 0.5:
                 return "sitting" 
         else:  
-            if knee_centre is not None:
+            if torso_angle < lying_threshold and knee_centre is not None:
                 knee_hip_angle = person._angle_from_vertical(hip_centre, knee_centre)
                 print(f"The knee hip angle is {knee_hip_angle}")
                 if knee_hip_angle > 60:
@@ -263,4 +267,3 @@ class FallDetector():
         return "falling"  # Default to "falling" if none of the other states are verified.
 
             
-

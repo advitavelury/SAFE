@@ -75,9 +75,14 @@ preview their own camera but cannot initiate incident-producing monitoring.
 - No audio, raw frame persistence, Firebase Storage uploads or video recording.
 - Recognised events write timestamped `incidents` documents using the dashboard
   schema, with session-scoped person references and `recordingAvailable: false`.
-- The existing detector suppresses further events for an already-alerted track
-  within that session. Dashboard resolution does not reset this browser session's
+- The detector suppresses duplicate events for an already-alerted track, but
+  permits a later fall to create a separate incident after a lower-priority alert.
+  Dashboard resolution does not reset this browser session's
   tracking state; restart detection for a new controlled test.
+- Fall timing permits a direct standing-to-lying transition when sampled frames
+  miss the descent. First appearing already lying down still does not establish
+  a fall. Unreliable shoulder/hip landmarks show `Fall: pose unclear` on processed
+  frames; do not treat missing pose evidence as a negative fall assessment.
 - A missing backend or failed incident write stops the upload loop and displays
   an error. The frontend never labels a local-only preview as active detection.
 
@@ -89,3 +94,15 @@ stubbed API responses, not residents, real Firebase credentials or a live tunnel
 Live Firebase writes, real-device accuracy, the tunnel and multi-device use must
 be verified after credential setup. Fall and distress alerts are prototype
 signals, not medical diagnoses or a safety guarantee.
+
+### Fall regression checks (11 October 2026)
+
+Unit regressions cover direct standing-to-lying transitions, horizontal versus
+seated poses, missing-pose diagnostics, and fall escalation after another alert.
+An offline run of the three bundled clips used the real model with a mock event
+writer, without Firebase writes. At 10 sampled FPS, `Fall test.mp4` produced a
+fall at 2.6 seconds; neither other clip produced a fall. At 2 sampled FPS, none
+of the three produced a fall. One AVI also reported decoder corruption. These
+are limited diagnostic checks, not an accuracy evaluation or a claim that the
+prototype reliably detects falls. Camera framing, tracking continuity, valid
+pose landmarks and processed frame rate remain important limitations.

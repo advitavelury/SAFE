@@ -2,6 +2,7 @@ import unittest
 import time
 from types import SimpleNamespace
 from threading import Lock
+from queue import Queue
 from unittest.mock import Mock
 
 import cv2
@@ -167,6 +168,29 @@ class BrowserCameraTests(unittest.TestCase):
             self.assertEqual(item.check_detector.call_args.kwargs["ctx"].frame_time, 2.0)
         detector.events.create_event.assert_called_once()
         self.assertEqual(detector.persons[1].active_event_id, "event-1")
+
+        # A new track can raise a fall after an earlier lower-priority alert.
+        detector.persons = {}
+        detector.outstanding_events = {}
+        detector.events.reset_mock()
+        detector.events.create_event.side_effect = [SimpleNamespace(id="movement-1"), SimpleNamespace(id="fall-1")]
+        detectors[0].check_detector.return_value = None
+        detectors[1].check_detector.return_value = EventType.WANDERING_DISTRESS
+        detector.process_frame(frame, 3.0)
+        detectors[0].check_detector.return_value = EventType.FALL
+        detector.process_frame(frame, 4.0)
+        detector.process_frame(frame, 5.0)
+        self.assertEqual(detector.events.create_event.call_count, 2)
+        self.assertEqual(detector.persons[1].active_event_type, EventType.FALL)
+        self.assertEqual(detector.persons[1].active_event_id, "fall-1")
+        detector.completion_queue = Queue()
+        detector.enqueue_event_completion("movement-1")
+        detector.process_event_completions()
+        self.assertEqual(detector.persons[1].active_event_id, "fall-1")
+        detector.enqueue_event_completion("fall-1")
+        detector.process_event_completions()
+        self.assertIsNone(detector.persons[1].active_event_id)
+        self.assertIsNone(detector.persons[1].active_event_type)
 
 
 if __name__ == "__main__":

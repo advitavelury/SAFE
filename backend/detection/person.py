@@ -88,6 +88,7 @@ class Person(FallDetectorMetrics, SittingDetectorMetrics):
         self.keypoints = {} # stores keypoints where the key is the COCO index and value is the tensor object.
         self.box_coords = None # Box coordinates are in the form (x1, y1, x2, y2). Defines the top left and bottom right corner of the box surrounding the person.
         self.active_event_id = None 
+        self.active_event_type = None
         super().__init__()
 
     def box_midpoint(self):
