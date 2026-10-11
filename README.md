@@ -89,11 +89,12 @@ Use this local URL, not the Vercel website, for your laptop's demo.
 3. To save clips, tick **Record red events locally** before starting detection.
 4. Click **Start detection**. A webcam preview by itself does not run detection.
 5. Select **Detection frames** to see the pose and alerts. Keep the full body visible.
-6. After a red event, leave detection running for five more seconds, then open
-   **Incidents -> Review** to play the clip.
+6. After a red event, leave detection running for five more seconds. An **admin**
+   can then open **Incidents -> Review** to play the clip.
 
-Both staff and admins can start/stop their own detection session. Only admins can
-edit incidents or change detector settings. One session runs per backend at a time.
+Both staff and admins can start/stop their own detection session. Staff can view
+incident details, but **only admins can play incident videos**, edit incidents or
+change detector settings. One session runs per backend at a time.
 
 **To stop:** stop detection in the dashboard, then press **Ctrl+C** in the terminal.
 

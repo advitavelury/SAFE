@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, RefreshCw, VideoOff, Crosshair } from 'lucide-react';
 import { recordingRequest, recordingServiceEnabled } from '../api/recordings.js';
+import { useStaffSession } from '../api/StaffSession.jsx';
+import { canReviewRecordings } from '../api/staffAccess.js';
 
 export default function IncidentPlayback({ incidentId }) {
+  const session = useStaffSession();
+  const canReview = session?.status === 'ready' && canReviewRecordings(session.user, session.profile);
+  const uid = session?.user?.uid;
   const [state, setState] = useState({ status: 'loading' });
   const [url, setUrl] = useState(null);
   const [attempt, setAttempt] = useState(0);
   const video = useRef(null);
 
   useEffect(() => {
+    if (!canReview) {
+      setUrl(null);
+      setState({ status: 'restricted' });
+      return;
+    }
     if (!recordingServiceEnabled) {
       setUrl(null);
       setState({ status: 'unavailable', message: 'Recordings are not connected to this deployment.' });
@@ -48,7 +58,12 @@ export default function IncidentPlayback({ incidentId }) {
       clearTimeout(timer);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [incidentId, attempt]);
+  }, [incidentId, attempt, canReview, uid]);
+
+  if (!canReview) return <section className="incident-playback" aria-label="Incident recording">
+    <h3>Incident recording</h3>
+    <p role="note">Incident videos are available to administrators only.</p>
+  </section>;
 
   const pending = ['loading', 'recording', 'processing'].includes(state.status);
   return <section className="incident-playback" aria-label="Incident recording">

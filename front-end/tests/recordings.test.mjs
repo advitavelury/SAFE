@@ -30,7 +30,7 @@ test('clip requests use fresh bearer auth without query tokens, cookies or cachi
 test('unapproved users and non-video responses never become playable blobs', async () => {
   const request = response => createRecordingRequest({ origin: 'https://detector.test',
     getUser: () => ({ getIdToken: async () => 'token' }), fetchImpl: async () => response });
-  await assert.rejects(request(new Response('', { status: 403 }))('id', true), /access denied/);
+  await assert.rejects(request(new Response('', { status: 403 }))('id', true), /administrator account is required/);
   await assert.rejects(request(new Response('<html>', { headers: { 'Content-Type': 'text/html' } }))('id', true), /did not return a video/);
   await assert.rejects(createRecordingRequest({ getUser: () => null, origin: null })('id', true), /sign-in required/);
 });

@@ -243,30 +243,46 @@ class PlaybackAuthTests(unittest.TestCase):
             self.recording_factory.assert_called_once()
             self.client.delete(url+'/'+response.json()['id'], headers=self.headers(role))
 
-    def test_both_staff_roles_can_play_but_anonymous_and_revoked_cannot(self):
+    def test_only_admin_can_read_clip_metadata_and_video(self):
         recorder = IncidentRecorder(self.store, lambda frame, results: np.zeros_like(frame))
         recorder.observe(np.zeros((120, 160, 3), np.uint8), [], 0)
         recorder.trigger('incident-1', 0)
         recorder.close()
         self.store.close()
         base = '/api/incidents/incident-1/clip'
-        for role in ('admin', 'operator'):
-            self.assertEqual(self.client.get(base, headers=self.headers(role)).json()['status'], 'ready')
-            response = self.client.get(base+'/file', headers=self.headers(role))
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.headers['content-type'], 'video/mp4')
-            self.assertEqual(response.headers['cache-control'], 'no-store')
+        self.assertEqual(self.client.get(base, headers=self.headers('admin')).json()['status'], 'ready')
+        response = self.client.get(base+'/file', headers=self.headers('admin'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'video/mp4')
+        self.assertEqual(response.headers['cache-control'], 'no-store')
+        for path in (base, base+'/file'):
+            self.assertEqual(self.client.get(path, headers=self.headers('operator')).status_code, 403)
+            self.assertEqual(self.client.get(path, headers={**self.headers('operator'),
+                'Range': 'bytes=0-15'}).status_code, 403)
         self.assertEqual(self.client.get(base).status_code, 401)
         self.assertEqual(self.client.get(base+'/file?token=admin').status_code, 401)
         self.authorizer.verify.side_effect = HTTPException(403, 'Revoked')
+        self.assertEqual(self.client.get(base, headers=self.headers('admin')).status_code, 403)
         self.assertEqual(self.client.get(base+'/file', headers=self.headers('admin')).status_code, 403)
+
+    def test_playback_rechecks_admin_role_on_every_request(self):
+        base = '/api/incidents/incident-1/clip'
+        self.assertEqual(self.client.get(base, headers=self.headers('admin')).status_code, 200)
+        self.authorizer.verify.side_effect = lambda token: SimpleNamespace(uid='admin', role='operator')
+        for path in (base, base+'/file'):
+            self.assertEqual(self.client.get(path, headers=self.headers('admin')).status_code, 403)
+
+    def test_operator_is_denied_even_when_recording_is_disabled(self):
+        with TestClient(create_app(authorizer=self.authorizer, detector_factory=self.factory)) as client:
+            for path in ('/api/incidents/missing/clip', '/api/incidents/missing/clip/file'):
+                self.assertEqual(client.get(path, headers=self.headers('operator')).status_code, 403)
 
     def test_paths_and_symlinks_cannot_escape_private_directory(self):
         for value in ('../secret', '/tmp/secret', 'bad.id'):
             with self.assertRaises(ValueError):
                 self.store.info(value)
         (Path(self.directory.name) / 'symlink.json').symlink_to('/etc/hosts')
-        response = self.client.get('/api/incidents/symlink/clip', headers=self.headers('operator'))
+        response = self.client.get('/api/incidents/symlink/clip', headers=self.headers('admin'))
         self.assertEqual(response.status_code, 404)
 
     def test_idle_expiry_finalizes_session_without_another_frame(self):

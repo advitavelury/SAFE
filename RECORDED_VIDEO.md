@@ -71,10 +71,11 @@ VITE_BROWSER_DETECTOR_ORIGIN=http://127.0.0.1:8012 npm run dev -- --host 127.0.0
 
 Sign in as approved staff (admin or operator), connect the camera, check the recording checkbox,
 then Start detection. After a red event, leave detection running for at least five
-more seconds for the follow-up. Open **Incidents -> Review**. The player polls
+more seconds for the follow-up. An **admin** can open **Incidents -> Review**. The player polls
 while the clip finishes; **Alert** jumps to the event position. Both roles can run
-their own monitoring/recording session and read clips. Incident edits and detector
-settings remain admin-only.
+their own monitoring/recording session, but only admins can play clips. Operators
+can read incident details, not the video. Incident edits and detector settings
+also remain admin-only.
 
 Vercel must be deployed from code containing this feature to show these controls.
 For a remote demo, run this backend behind the approved authenticated HTTPS tunnel,
@@ -92,9 +93,10 @@ different laptop does not move old local clips automatically.
   minute while the backend runs. When it is off, expired files remain until the
   next startup. Firestore incident records are not deleted by clip cleanup.
 - Playback resolves an incident ID to a managed local path. Both metadata and
-  MP4 requests require a fresh verified Firebase staff token and active profile;
+  MP4 requests require a fresh verified Firebase token and active admin profile;
   no query-token URLs, public file links, or wildcard CORS are used. Responses are
-  no-store. Already downloaded footage cannot be revoked from a staff device.
+  no-store. A role change closes the dashboard player and releases its blob URL.
+  Previously downloaded footage cannot be recalled from a device.
 - Readiness comes from the clip API. Firestore recording flags are updated on
   completion when available; failed flag synchronization is logged and does not
   expose raw data or prevent local playback.
@@ -103,7 +105,7 @@ different laptop does not move old local clips automatically.
 
 Automated tests cover pre/post buffering, red-only triggers, redaction-before-
 buffering, missing face landmarks, overlap, partial clips, encoder failure,
-retention, capacity, restart, safe paths, staff-only playback and frontend errors.
+retention, capacity, restart, safe paths, admin-only playback and frontend errors.
 An offline run of the bundled fall video produced an actual playable H.264 clip
 with no audio, using mock database writes. Desktop/mobile browser checks covered
 playback, seek-to-alert, loading, denied access and object-URL cleanup.
@@ -117,7 +119,7 @@ Still required before claiming privacy works on real recordings:
    any exposed face, fallback black frame and wrong box/landmark association.
 3. Inspect the recording folder and confirm only redacted MP4/JSON files exist.
    Confirm no raw source or intermediate frame is written or uploaded.
-4. Check admin and operator playback, denied/revoked accounts, stopping mid-clip,
+4. Check admin playback, operator denial, denied/revoked accounts, stopping mid-clip,
    browser tab hiding, network interruptions and retention cleanup.
 
 Passing the code tests or seeing a red alert alone does not satisfy this checklist.

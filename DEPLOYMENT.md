@@ -86,7 +86,7 @@ It uses `VITE_BROWSER_DETECTOR_ORIGIN`, not `VITE_MEDIA_API_ORIGIN`, and the new
 `backend.browser_camera_api:create_app` entry point. Keep that variable unset
 until the laptop has its private Firebase credentials and a verified HTTPS
 connection. Browser incident metadata is adapted to `incidents`. Optional redacted
-local red-event clips and authenticated playback are implemented; see
+local red-event clips and authenticated admin-only playback are implemented; see
 [recording setup](RECORDED_VIDEO.md). They require a backend and frontend that both
 include this feature. Remote sharing of the live webcam with other viewers is not
 implemented, and clips remain on the backend laptop rather than in Firebase Storage.
@@ -123,6 +123,8 @@ cloud server access to its webcam. Never expose an unauthenticated camera tunnel
 - Admin can acknowledge/add a note/resolve a designated test incident, and the
   change persists after refresh with a matching review entry.
 - Operator cannot perform those writes, including through a direct request.
+- Operator can run detection but cannot fetch clip metadata or video bytes, even
+  through a direct API request. Admin playback must work after deployment.
 - Inactive/unapproved users cannot view the dashboard or read records.
 - With both backend origins unset, the dashboard makes no camera or clip requests.
 - Missing configuration fails the build rather than deploying a broken login.
