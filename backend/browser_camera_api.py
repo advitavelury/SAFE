@@ -86,7 +86,8 @@ class BrowserSessions:
                 raise HTTPException(409, "Recording is not enabled on this laptop.")
             detector = (self.recording_factory if record else self.factory)(session_id)
             self.session = {"id": session_id, "uid": uid, "detector": detector, "seen": self.clock()}
-            return {"id": session_id, "idleTimeoutSeconds": SESSION_IDLE_SECONDS, "recording": record}
+            return {"id": session_id, "idleTimeoutSeconds": SESSION_IDLE_SECONDS, "recording": record,
+                    "snapshots": getattr(detector, 'snapshots_enabled', False) is True}
 
     def _owned(self, uid, session_id):
         self._expire()
@@ -124,10 +125,16 @@ def create_app(*, authorizer=None, detector_factory=None, origins=None, clock=ti
                               str(Path(__file__).resolve().parent / 'recordings')))
     if detector_factory is None:
         from .browser_detection import BrowserDetector
-        detector_factory = lambda session_id: BrowserDetector(session_id, settings_service=settings_service)
+        snapshot_store = None
+        if os.environ.get('SAFE_SNAPSHOTS_ENABLED') == 'true':
+            from .firebase_config import production_bucket
+            from .incident_snapshots import IncidentSnapshotStore
+            snapshot_store = IncidentSnapshotStore(production_bucket)
+        detector_factory = lambda session_id: BrowserDetector(session_id, settings_service=settings_service,
+                                                              snapshot_store=snapshot_store)
         if clip_store is not None:
             recording_factory = lambda session_id: BrowserDetector(session_id,
-                settings_service=settings_service, clip_store=clip_store)
+                settings_service=settings_service, clip_store=clip_store, snapshot_store=snapshot_store)
     sessions = BrowserSessions(detector_factory, clock, recording_factory)
     allowed = origins if origins is not None else [value.strip() for value in
         os.environ.get("SAFE_WEB_ORIGINS", PRODUCTION_ORIGIN).split(",") if value.strip()]

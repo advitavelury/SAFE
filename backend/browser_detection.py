@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from threading import Lock
 from types import SimpleNamespace
 import time
+import logging
 from dataclasses import dataclass
 
 from .detection.detection import Program
@@ -10,6 +11,7 @@ from .event_types import EventType, AlertLevel
 from .detector_settings import DetectorSettingsService
 from .recordings import IncidentRecorder
 from .recording_privacy import redact_recording_frame
+from .incident_snapshots import encode_snapshot
 
 
 @dataclass(frozen=True)
@@ -17,6 +19,7 @@ class PreparedIncident:
     ref: object
     timestamp: datetime
     recording: bool
+    snapshot: bytes | None = None
 
 
 INCIDENT_TYPES = {
@@ -30,17 +33,18 @@ INCIDENT_TYPES = {
 class BrowserIncidentWriter:
     stores_images = False
 
-    def __init__(self, db, session_id, clip_store=None):
+    def __init__(self, db, session_id, clip_store=None, snapshot_store=None):
         self.db = db
         self.session_id = session_id
         self.clip_store = clip_store
+        self.snapshot_store = snapshot_store
 
-    def prepare(self, event, recorder, stamp):
+    def prepare(self, event, recorder, stamp, snapshot=None):
         ref = self.db.collection('incidents').document()
         recording = recorder is not None and event.alert_level == AlertLevel.RED
         if recording:
             recorder.trigger(ref.id, stamp)
-        return PreparedIncident(ref, datetime.now(timezone.utc), recording)
+        return PreparedIncident(ref, datetime.now(timezone.utc), recording, snapshot)
 
     def create_event(self, person_id, event_type, alert_level, frame=None):
         # `frame` is prepared incident context, never a raw image in this adapter.
@@ -49,12 +53,27 @@ class BrowserIncidentWriter:
         prepared = frame if isinstance(frame, PreparedIncident) else None
         now = prepared.timestamp if prepared else datetime.now(timezone.utc)
         ref = prepared.ref if prepared else self.db.collection("incidents").document()
-        ref.set({"type": kind, "status": "active", "outcome": "unconfirmed",
+        data = {"type": kind, "status": "active", "outcome": "unconfirmed",
                  "zoneId": "A", "personId": f"{self.session_id}:{person_id}",
                  "createdAt": now, "updatedAt": now, "source": "browser-camera",
                  "sessionId": self.session_id, "recordingAvailable": False,
                  "alert_level": level.value,
-                 "severity": "high" if level == AlertLevel.RED else "medium"}, timeout=5)
+                 "severity": "high" if level == AlertLevel.RED else "medium"}
+        snapshot_requested = self.snapshot_store is not None and level == AlertLevel.RED
+        if snapshot_requested:
+            data['snapshot'] = {'status': 'pending' if prepared and prepared.snapshot else 'failed',
+                                'capturedAt': now}
+        ref.set(data, timeout=5)
+        if snapshot_requested and prepared and prepared.snapshot:
+            try:
+                state = self.snapshot_store.upload(ref.id, prepared.snapshot)
+            except Exception:
+                logging.getLogger(__name__).warning('Snapshot upload failed; incident remains saved.')
+                state = {'status': 'failed'}
+            try:
+                ref.update({'snapshot': {**state, 'capturedAt': now}}, timeout=5)
+            except Exception:
+                logging.getLogger(__name__).warning('Snapshot status update failed; incident remains saved.')
         if prepared and prepared.recording:
             def sync_recording(state):
                 ref.update({'recordingAvailable': state['status'] == 'ready',
@@ -65,12 +84,13 @@ class BrowserIncidentWriter:
 
 
 class BrowserDetector(Program):
-    def __init__(self, session_id, db=None, settings_service=None, clip_store=None):
+    def __init__(self, session_id, db=None, settings_service=None, clip_store=None, snapshot_store=None):
         if db is None:
             from .firebase_config import production_db
             db = production_db
         self.recorder = IncidentRecorder(clip_store, redact_recording_frame) if clip_store else None
-        super().__init__(Lock(), events=BrowserIncidentWriter(db, session_id, clip_store),
+        self.snapshots_enabled = snapshot_store is not None
+        super().__init__(Lock(), events=BrowserIncidentWriter(db, session_id, clip_store, snapshot_store),
                          settings_service=settings_service if settings_service is not None else DetectorSettingsService(db))
         self.fps = 0
         self.previous_time = None
@@ -86,8 +106,16 @@ class BrowserDetector(Program):
             self.recorder.observe(frame, results, frame_time)
 
     def prepare_event_frame(self, frame, all_kp, boxes, all_conf, index, event, frame_time):
-        if getattr(self, 'recorder', None):
-            return self.events.prepare(event, self.recorder, frame_time)
+        recorder = getattr(self, 'recorder', None)
+        snapshots = getattr(self, 'snapshots_enabled', False) is True
+        if recorder or snapshots:
+            snapshot = None
+            if snapshots and event.alert_level == AlertLevel.RED:
+                try:
+                    snapshot = encode_snapshot(frame, boxes, all_kp, all_conf)
+                except Exception:
+                    logging.getLogger(__name__).warning('Snapshot redaction failed; no image will be uploaded.')
+            return self.events.prepare(event, recorder, frame_time, snapshot)
         return None
 
     def close(self):

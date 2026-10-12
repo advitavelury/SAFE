@@ -1,4 +1,4 @@
-"""Recording-only redaction. Raw frames must never enter the clip buffer."""
+"""Shared saved-media redaction. Raw frames must never be persisted."""
 import cv2
 import numpy as np
 
@@ -15,6 +15,12 @@ def redact_recording_frame(frame, results):
     if confidence is None:
         return safe
     confidence = confidence.cpu().numpy()
+    return redact_pose_frame(frame, boxes, points, confidence)
+
+
+def redact_pose_frame(frame, boxes, points, confidence):
+    """Redact all observed people; uncertain people and background stay hidden."""
+    safe = np.zeros_like(frame)
     height, width = frame.shape[:2]
     regions = []
     masks = []

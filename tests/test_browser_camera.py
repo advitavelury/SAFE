@@ -234,6 +234,23 @@ class SharedPipelineTests(unittest.TestCase):
         self.assertEqual(self.detector.persons[1].active_event_id['id'], 'fall-1')
         self.assertIsNone(self.jobs[0][1]['frame'])
 
+    def test_snapshot_is_prepared_once_per_red_incident_without_clip_recording(self):
+        store = Mock()
+        db = Mock()
+        db.collection.return_value.document.return_value.id = 'red-1'
+        self.detector.events = BrowserIncidentWriter(db, 'session', snapshot_store=store)
+        self.detector.snapshots_enabled = True
+        self.detectors[0].check_detector.return_value = DetectionResult(EventType.FALL, AlertLevel.RED)
+        self.tick()
+        self.tick(2.0)
+        self.assertEqual(len(self.jobs), 1)
+        prepared = self.jobs[0][1]['frame']
+        self.assertIsInstance(prepared.snapshot, bytes)
+        self.assertFalse(prepared.recording)
+        self.finish(0, 'red-1')
+        self.tick(3.0)
+        self.assertEqual(len(self.jobs), 1)
+
     def test_amber_to_red_escalation_and_completion_only_clears_matching_event(self):
         self.detectors[3].check_detector.return_value = DetectionResult(EventType.SITTING_DISTRESS, AlertLevel.AMBER)
         self.tick()
