@@ -36,7 +36,8 @@ still leave identifying content. Clothing, body shape and context may identify
 someone even with a hidden face. Real footage needs frame-by-frame review with
 consenting participants. Do not test with residents until privacy is validated.
 The live webcam preview and processed detection view are NOT redacted; the saved
-recording is a separate output. Firebase receives incident metadata, not footage.
+recording is a separate output. Videos stay local. The independent
+[snapshot option](SNAPSHOTS.md) can save redacted still images to Firebase Storage.
 
 ## Run locally
 

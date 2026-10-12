@@ -117,6 +117,8 @@ If dependency files changed after pulling, repeat the two install commands from 
   are both enabled. **Amber/yellow events:** event details only, no clip.
 - Event details are shared through Firebase. Videos stay on the recording laptop,
   normally in `~/.safe/recordings`, not Firebase Storage.
+- Optional [red-incident snapshots](SNAPSHOTS.md) save one redacted still image to
+  Firebase Storage; video playback permissions are unchanged.
 - Another laptop cannot play your local clips. Old events do not gain clips
   retroactively. Clips expire after 24 hours and may be removed earlier to free space.
 - Saved clips are redacted; the live preview is not. Unclear poses may produce

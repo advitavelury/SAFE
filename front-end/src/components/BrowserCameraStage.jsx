@@ -88,8 +88,8 @@ export default function BrowserCameraStage() {
         <label className="setting-row"><span>Record red events locally (redacted, no audio)</span><input type="checkbox"
           checked={recordRedEvents} disabled={detection.requested} onChange={event => setRecordRedEvents(event.target.checked)}/></label>
         <p className="browser-camera-status">{detection.requested ? 'Live frames are being transmitted.' : recordRedEvents
-          ? 'Starting detection sends frames to the demo laptop. Red-event clips are stored there; expired clips are removed during backend cleanup. Use consenting participants only.'
-          : 'Starting detection sends video frames to the demo laptop and saves incident metadata to Firebase.'}</p>
+          ? 'Starting detection sends frames to the demo laptop. Red-event clips are stored there. When enabled, redacted incident snapshots are also saved to Firebase. Use consenting participants only.'
+          : 'Starting detection sends frames to the demo laptop and saves incident metadata to Firebase. When enabled, redacted red-event snapshots are also saved to Firebase. Use consenting participants only.'}</p>
         <button type="button" onClick={detection.requested ? detection.stop : detection.start}>
           {detection.requested ? <Square size={16}/> : <ScanLine size={16}/>}{detection.requested ? 'Stop detection' : 'Start detection'}
         </button>

@@ -2,8 +2,8 @@
 
 Optional local red-event clips are available in the integrated browser demo.
 See [RECORDED_VIDEO.md](RECORDED_VIDEO.md) for setup, privacy limitations and
-validation. The metadata-only behaviour below still applies when recording is
-not explicitly enabled on both backend and dashboard.
+validation. Optional cloud still images are separate; see [SNAPSHOTS.md](SNAPSHOTS.md).
+Metadata-only behaviour applies when both saved-media features are disabled.
 
 For teammates running everything on their own laptop, start with the
 [README quick start](README.md#teammate-quick-start). The launcher connects the
@@ -88,8 +88,9 @@ Operators can view incident and clip details and run detection, but cannot fetch
   The displayed detection FPS measures completed frame round trips, not webcam
   FPS. Uploads are capped at approximately 10 FPS; slow requests start the next
   capture immediately instead of adding a fixed 100 ms pause.
-- No audio, raw frame persistence or Firebase Storage uploads. Without opt-in
-  recording, there is no saved video; see RECORDED_VIDEO.md for the optional path.
+- No audio or raw frame persistence. With `SAFE_SNAPSHOTS_ENABLED=true`, new red
+  incidents save one redacted JPEG to Firebase Storage. Without opt-in recording,
+  there is no saved video; see RECORDED_VIDEO.md for the optional path.
 - Recognised events write timestamped `incidents` documents using the dashboard
   schema, with session-scoped person references and initially
   `recordingAvailable: false`. Completed opt-in clips update their recording status.
@@ -103,7 +104,7 @@ Operators can view incident and clip details and run detection, but cannot fetch
   reported on the next frame request or explicit stop.
 - The legacy local-camera service retains your teammate's cropped, face-blurred
   incident snapshots and `events` collection. Browser detection writes metadata
-  in `incidents`; it does not upload snapshots or clips to cloud storage. Neither
+  in `incidents`, optionally uploads redacted snapshots, and keeps clips local. Neither
   the raw browser preview nor the processed live view is face-blurred.
 - The detector suppresses duplicate events for an already-alerted track, but
   permits amber-to-red escalation and a later fall after another distress alert.

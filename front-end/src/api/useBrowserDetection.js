@@ -50,6 +50,7 @@ export function useBrowserDetection(videoRef, stream, recordRedEvents = false) {
     let timer;
     let previousMetrics = null;
     let recording = false;
+    let snapshots = false;
     setMetrics(null);
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -96,9 +97,11 @@ export function useBrowserDetection(videoRef, stream, recordRedEvents = false) {
         setImage(imageUrl.current);
         previousMetrics = frameMetrics(previousMetrics, performance.now(), startedAt);
         setMetrics(previousMetrics);
-        setState({ status: 'running', recording, message: recording
+        const recordingMessage = recording
           ? 'Detection active. Red-event clips are redacted and saved on the demo laptop.'
-          : 'Detection active. Incident metadata is saved to Firebase. No clips recorded.' });
+          : 'Detection active. Incident metadata is saved to Firebase. No clips recorded.';
+        setState({ status: 'running', recording, snapshots, message: recordingMessage + (snapshots
+          ? ' Redacted red-event snapshots are saved to Firebase Storage.' : '') });
         // Backpressure: never queue webcam frames while an inference request is running.
         timer = setTimeout(frame, nextFrameDelay(performance.now() - startedAt));
       } catch (error) {
@@ -115,6 +118,7 @@ export function useBrowserDetection(videoRef, stream, recordRedEvents = false) {
       if (!/^[a-f0-9]{32}$/.test(data.id)) throw new Error('Invalid detector session.');
       sessionId = data.id;
       recording = data.recording === true;
+      snapshots = data.snapshots === true;
       if (recordRedEvents && !recording) throw new Error('This backend did not enable recording. Update the laptop backend.');
       if (disposed) closeSession();
       else frame();

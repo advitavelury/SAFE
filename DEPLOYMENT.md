@@ -90,6 +90,8 @@ local red-event clips and authenticated admin-only playback are implemented; see
 [recording setup](RECORDED_VIDEO.md). They require a backend and frontend that both
 include this feature. Remote sharing of the live webcam with other viewers is not
 implemented, and clips remain on the backend laptop rather than in Firebase Storage.
+The independent [red-incident snapshot option](SNAPSHOTS.md) uploads only redacted
+JPEGs when `SAFE_SNAPSHOTS_ENABLED=true` is set on the backend, not on Vercel.
 
 With neither backend origin configured, production builds do not poll camera/clip APIs.
 They show an unavailable state and hide ineffective media controls. Firebase
