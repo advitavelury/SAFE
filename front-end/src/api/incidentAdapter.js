@@ -7,9 +7,7 @@ export function toAdminEvent(incident) {
     schemaVersion: 1,
     id: incident.id,
     type,
-    severity: incident.alert_level === 'red' ? 'high'
-      : incident.alert_level === 'amber' ? 'medium'
-        : ['high', 'medium', 'low'].includes(incident.severity) ? incident.severity : demoSeverity(type),
+    severity: demoSeverity(type),
     status: ['active', 'acknowledged', 'resolved'].includes(incident.status) ? incident.status : 'active',
     outcome: ['confirmed', 'false_alarm', 'unconfirmed'].includes(incident.outcome)
       ? incident.outcome : incident.type === 'false' ? 'false_alarm' : 'unconfirmed',

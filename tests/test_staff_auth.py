@@ -95,7 +95,7 @@ class RouteAuthorizationTests(unittest.TestCase):
         db.collection.return_value.document.return_value.get.return_value.to_dict.side_effect = lambda: self.profile
         self.authorizer = StaffAuthorizer(db, Mock(return_value={"uid": "real-admin", "firebase": {"sign_in_provider": "password"}}))
         self.events = Mock()
-        self.event = {"id": "event-1", "person_id": 1, "event_type": "fall", "alert_level": "red",
+        self.event = {"id": "event-1", "person_id": 1, "event_type": "fall",
                       "timestamp": datetime.now(timezone.utc), "image_path": "events/event-1.jpeg"}
         self.events.get_event.return_value = self.event
         self.events.get_events.return_value = [self.event]

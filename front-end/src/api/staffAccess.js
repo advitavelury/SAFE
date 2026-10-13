@@ -7,10 +7,6 @@ export function canEditIncidents(user, profile) {
   return isApprovedStaff(user, profile) && profile.role === 'admin';
 }
 
-export function canReviewRecordings(user, profile) {
-  return isApprovedStaff(user, profile) && profile.role === 'admin';
-}
-
 const accessErrors = {
   "permission-denied": "Firestore denied access to your staff profile. Contact your administrator to check the project's access rules. (permission-denied)",
   "unavailable": "Firestore is temporarily unreachable. Check your connection and retry. (unavailable)",

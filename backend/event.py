@@ -82,7 +82,7 @@ class EventService:
             id=event_id,
             person_id=(data["person_id"]),
             event_type=EventType(data["event_type"]),
-            alert_level=data.get("alert_level"),
+            alert_level=AlertLevel(data["alert_level"]),
             timestamp=data["timestamp"],
             image_path=image_path,
             image_url=image_url,
@@ -142,7 +142,7 @@ class EventService:
                 id=doc.id,
                 person_id=data["person_id"],
                 event_type=EventType(data["event_type"]),
-                alert_level=data.get("alert_level"),
+                alert_level=AlertLevel(data["alert_level"]),
                 status=EventStatus(
                     data.get("status", EventStatus.OPEN.value)
                 ),

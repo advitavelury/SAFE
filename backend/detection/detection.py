@@ -16,7 +16,7 @@ from .detectors import FallDetector, WanderingDetector, IsolationDetector, Sitti
 from ..event_types import AlertLevel
 from .detection_types import DetectionResult
 from .frame_context import FrameContext
-from ..event_types import EventType
+from ..event import event_service
 from ..detector_settings import DetectorSettingsService, apply_detector_settings
 
 
@@ -31,11 +31,7 @@ L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
 class Program(ABC):
-    def __init__(self, frame_lock: Lock, events=None, settings_service=None):
-        if events is None:
-            from ..event import event_service
-            events = event_service
-        self.events = events
+    def __init__(self, frame_lock: Lock):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,32 +46,13 @@ class Program(ABC):
         self.wandering_detector = WanderingDetector([("08:00", "20:00")]) # pass in normal hours in the form of tuples.
         self.isolation_detector = IsolationDetector(timedelta(hours=1))
         self.sitting_detector = SittingDetector(timedelta(hours=2))
-        self.settings_service = settings_service if settings_service is not None else DetectorSettingsService()
+        self.settings_service = DetectorSettingsService()
         self._applied_settings = self.settings_service.get()
         self.apply_settings(self._applied_settings)
         self.completion_queue: Queue[str] = Queue()  # this Queue is used by the API thread too. Passes in events that have been marked completed in the database. 
         self.outstanding_events: dict[str, int] = {}  # Maps an outstanding event in the current session to its person. 
         self.event_executor = ThreadPoolExecutor(max_workers=2)  # Used when creating an event in the detection loop
         self.pending_events = {}  # person_id -> Future
-        self.pending_results = {}
-        self.deferred_events = {}
-
-    def close(self):
-        self.event_executor.shutdown(wait=True)
-        self.process_pending_events(flush=True)
-
-    @staticmethod
-    def should_raise(event, active):
-        if active is None:
-            return True
-        return (active['alert_level'] == AlertLevel.AMBER and event.alert_level == AlertLevel.RED
-                or event.event_type == EventType.FALL and active['event_type'] != EventType.FALL)
-
-    def submit_event(self, person_id, event, frame):
-        self.pending_results[person_id] = event
-        self.pending_events[person_id] = self.event_executor.submit(
-            self.events.create_event, person_id=person_id,
-            event_type=event.event_type, alert_level=event.alert_level, frame=frame)
 
 
     def refresh_detector_settings(self):
@@ -118,48 +95,38 @@ class Program(ABC):
 
                 person = self.persons.get(person_id)
 
-                if person is not None and person.active_event_id is not None and person.active_event_id['id'] == event_id:
-                    person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again.
-                    person.active_event_type = None
+                if person is not None and \
+                person.active_event_id is not None and \
+                person.active_event_id['id'] == event_id:
+                    person.active_event_id = None # the 'active_event_id' attribute is cleared and events can be raised for the person again. 
 
             finally:
                 self.completion_queue.task_done()
 
-    def process_pending_events(self, flush=False):
+    def process_pending_events(self):
         for person_id, future in list(self.pending_events.items()):
             if not future.done():
                 continue
 
             del self.pending_events[person_id]
-            self.pending_results.pop(person_id, None)
 
             try:
                 created_event = future.result()  # Already done, so won't wait.
-            except Exception:
-                self.deferred_events.pop(person_id, None)
-                raise RuntimeError("Incident saving failed") from None
-
+            except Exception as exc:
+                print(f"Event creation failed for {person_id}: {exc}")
+                continue
+        
             self.persons[person_id].active_event_id = {
-                "id": created_event.id,
-                "event_type": created_event.event_type,
-                "alert_level": created_event.alert_level,
-            }
-            self.outstanding_events[created_event.id] = person_id
-            self.persons[person_id].active_event_type = created_event.event_type
-            deferred = self.deferred_events.pop(person_id, None)
-            if deferred and self.should_raise(deferred[0], self.persons[person_id].active_event_id):
-                if flush:
-                    # A brief fall must still be saved when the session stops during an amber write.
-                    event, frame = deferred
-                    self.events.create_event(person_id=person_id, event_type=event.event_type,
-                                             alert_level=event.alert_level, frame=frame)
-                else:
-                    self.submit_event(person_id, *deferred)
+                                                       "id": created_event.id, 
+                                                       "event_type": created_event.event_type, 
+                                                       "alert_level": created_event.alert_level
+                                                    }
+            self.outstanding_events[created_event.id] = person_id # Currently the event is outstanding (hasn't been cleared) but 
             # when the event is marked as closed by the staff, it will be processed to clear the active_event_id attribute on the person.
-
+    
     def get_priority_event(self, events: list[DetectionResult]):
         if not events:
-            return None
+            return None 
         urgent_alerts = [] # These are alerts that are of alert level = 'red'
         non_urgent_alerts = [] # These are alerts that are of alert level = 'amber'
         for res in events:
@@ -176,8 +143,12 @@ class Program(ABC):
 
     def run(self, stop_event: Event):
         cam = self.get_cam()
+        model = self.model
         try:
             while not stop_event.is_set():
+                self.refresh_detector_settings()
+                self.process_pending_events() # process any events that may have finished being created. 
+                self.process_event_completions() # process any events marked as complete by the API Thread. 
                 ret, frame = cam.read()
 
                 # Exit the loop if the frame was not captured or 'q' is pressed 
@@ -190,7 +161,85 @@ class Program(ABC):
 
                 if self.is_video_mode():
                     self.frame_index += 1 
-                display_frame = self.process_frame(frame, self.get_frame_time())
+                frame_h, frame_w = frame.shape[0], frame.shape[1]
+                annotated_frame = None 
+
+                frame_time =  self.get_frame_time()  
+
+                fps_text = f"FPS: {int(self.fps)}"
+                results = model.track(source=frame, 
+                                    persist=True, 
+                                    classes = [0], # only track class 0 = person,
+                                    device = 'cpu', # forces CPU regardless of GPU availability,
+                                    tracker=self.bytetrack_yaml_path,
+                                    )
+                # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame, 
+                # we can access the result by doing result[0]. 
+                # The .cpu() call moves the tensor from GPU memory to CPU memory.
+                if results and results[0].boxes.id is not None: # results seems to never be None. We can only tell if no person is in the frame through id attribute being None
+                    boxes = results[0].boxes.xyxy.numpy().astype(int)
+                    ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
+                    all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
+                    all_conf = results[0].keypoints.conf # list of keypoints confidence percentage depending on the amount of people in the frame
+                    people_in_frame = len(ids)
+                    annotated_frame = results[0].plot(
+                        boxes=True,      # draw bounding boxes
+                        kpt_line=True,   # draw skeleton lines between keypoints
+                        kpt_radius=5,    # keypoint dot size
+                        labels=True,     # draw class + track ID labels
+                    )
+                    for i, person_id in enumerate(ids):
+                        person = self.persons.get(person_id)  # obtain the person object
+                        if person is None:
+                            person = Person(person_id)
+                            self.persons[person_id] = person
+                        box = boxes[i]
+                        kp = all_kp[i]  # keypoints of a person
+                        confidence = all_conf[i]
+                        self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
+                        frame_context = FrameContext(
+                            frame=annotated_frame, 
+                            frame_time=frame_time, 
+                            occupancy=people_in_frame
+                        )
+                        fall_result = self.fall_detector.check_detector(ctx=frame_context, person = person)
+                        wandering_result = self.wandering_detector.check_detector(ctx=frame_context, person = person)
+                        isolation_result = self.isolation_detector.check_detector(ctx=frame_context, person = person)
+                        sitting_result = self.sitting_detector.check_detector(ctx=frame_context, person = person)
+                        events = [fall_result, wandering_result, isolation_result, sitting_result]
+                        events = [event for event in events if event is not None]
+
+                        event = self.get_priority_event(events=events)
+                        if (event is not None):
+                            if (person.active_event_id is None\
+                                or (person.active_event_id['alert_level'] == AlertLevel.AMBER.value and event.alert_level == AlertLevel.RED.value)) \
+                              and (person_id not in self.pending_events): 
+                            # if there is no event raised for a particular person, we can raise another event. If an active event already exists for a person, 
+                            # check if the existing event is of amber level. If so, we can still raise events of higher severity. 
+                            # also make sure the person doesn't have any events pending events waiting to be created. 
+                                anonymised_frame = anonymise_event(frame=self.current_raw_frame.copy(), all_keypoints=all_kp, boxes=boxes, all_conf=all_conf, person_index=i)
+                                self.pending_events[person_id] = self.event_executor.submit(
+                                                                    event_service.create_event,
+                                                                    person_id=person_id,
+                                                                    event_type=event.event_type,
+                                                                    alert_level = event.alert_level,
+                                                                    frame=anonymised_frame,
+                                                                )
+                            
+                # Write the fps to the frame.    
+                display_frame = frame if annotated_frame is None else annotated_frame
+                cv2.putText(
+                        display_frame, 
+                        fps_text, 
+                        (10, 40),                   # Coordinates (X, Y)
+                        cv2.FONT_HERSHEY_SIMPLEX,   # Font type
+                        1,                          # Font scale
+                        (0, 255, 0),                # Color (BGR format: Green)
+                        2,                          # Line thickness
+                        cv2.LINE_AA
+                    )
+                with self.frame_lock: # variable is shared by the FrameStreamer method
+                    self.current_annotated_frame = display_frame.copy()
 
                 cv2.imshow('frame', display_frame)
 
@@ -207,98 +256,7 @@ class Program(ABC):
             # Release the capture objects 
             cam.release()
             cv2.destroyAllWindows()
-            self.close()
-
-    def process_frame(self, frame, frame_time):
-        self.refresh_detector_settings()
-        self.process_pending_events()
-        self.process_event_completions()
-        frame_h, frame_w = frame.shape[0], frame.shape[1]
-        annotated_frame = None
-
-        fps_text = f"FPS: {int(self.fps)}"
-        results = self.model.track(source=frame,
-                            persist=True,
-                            classes = [0], # only track class 0 = person,
-                            device = 'cpu', # forces CPU regardless of GPU availability,
-                            tracker=self.bytetrack_yaml_path,
-                            )
-        self.observe_recording_frame(frame, results, frame_time)
-        # results variable is a list of Results objects - one per frame/image. Since we are passing a single frame,
-        # we can access the result by doing result[0].
-        # The .cpu() call moves the tensor from GPU memory to CPU memory.
-        if results and results[0].boxes.id is not None: # results seems to never be None. We can only tell if no person is in the frame through id attribute being None
-            boxes = results[0].boxes.xyxy.numpy().astype(int)
-            ids = results[0].boxes.id.numpy().astype(int).tolist() # a list of ids depending on the amount of people in the frame
-            all_kp = results[0].keypoints.xy # list of keypoints depending on the amount of people in the frame
-            all_conf = results[0].keypoints.conf
-            people_in_frame = len(ids)
-            annotated_frame = results[0].plot(
-                boxes=True,      # draw bounding boxes
-                kpt_line=True,   # draw skeleton lines between keypoints
-                kpt_radius=5,    # keypoint dot size
-                labels=True,     # draw class + track ID labels
-            )
-            for i, person_id in enumerate(ids):
-                person = self.persons.get(person_id)  # obtain the person object
-                if person is None:
-                    person = Person(person_id)
-                    self.persons[person_id] = person
-                box = boxes[i]
-                kp = all_kp[i]  # keypoints of a person
-                confidence = results[0].keypoints.conf[i]
-                self.update_person_properties(kp = kp, conf=confidence, box = box, frame_h=frame_h, frame_w= frame_w, person=person)
-                frame_context = FrameContext(
-                    frame=annotated_frame,
-                    frame_time=frame_time,
-                    occupancy=people_in_frame
-                )
-                fall_event = self.fall_detector.check_detector(ctx=frame_context, person = person)
-                wandering_event = self.wandering_detector.check_detector(ctx=frame_context, person = person)
-                isolation_event = self.isolation_detector.check_detector(ctx=frame_context, person = person)
-                sitting_event = self.sitting_detector.check_detector(ctx=frame_context, person = person)
-
-                event = self.get_priority_event([result for result in
-                    (fall_event, wandering_event, isolation_event, sitting_event) if result is not None])
-                active = person.active_event_id
-                pending = self.pending_results.get(person_id)
-                deferred = self.deferred_events.get(person_id)
-                if deferred:
-                    pending = deferred[0]
-                if pending:
-                    active = {'event_type': pending.event_type, 'alert_level': pending.alert_level}
-                if event and self.should_raise(event, active):
-                    snapshot = self.prepare_event_frame(frame, all_kp, boxes, all_conf, i, event, frame_time)
-                    if person_id in self.pending_events:
-                        self.deferred_events[person_id] = (event, snapshot)
-                    else:
-                        self.submit_event(person_id, event, snapshot)
-
-        # Write the fps to the frame.
-        display_frame = frame if annotated_frame is None else annotated_frame
-        cv2.putText(
-                display_frame,
-                fps_text,
-                (10, 40),                   # Coordinates (X, Y)
-                cv2.FONT_HERSHEY_SIMPLEX,   # Font type
-                1,                          # Font scale
-                (0, 255, 0),                # Color (BGR format: Green)
-                2,                          # Line thickness
-                cv2.LINE_AA
-            )
-        with self.frame_lock: # variable is shared by the FrameStreamer method
-            self.current_annotated_frame = display_frame.copy()
-
-        return display_frame
-
-    def observe_recording_frame(self, frame, results, frame_time):
-        pass
-
-    def prepare_event_frame(self, frame, all_kp, boxes, all_conf, index, event, frame_time):
-        if getattr(self.events, 'stores_images', True):
-            return anonymise_event(frame=frame.copy(), all_keypoints=all_kp,
-                                   boxes=boxes, all_conf=all_conf, person_index=index)
-        return None
+            self.event_executor.shutdown(wait=True)
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
         self.extract_keypoints(kp, conf, person)
@@ -346,7 +304,7 @@ class Program(ABC):
         keypoints[L_ANKLE] = kp[L_ANKLE] if conf[L_ANKLE] > KP_CONF else None 
         keypoints[R_ANKLE] = kp[R_ANKLE] if conf[R_ANKLE] > KP_CONF else None 
 
-        return None
+        return None    
 
     @abstractmethod
     def get_fps(self):

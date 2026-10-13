@@ -23,8 +23,7 @@ class Event(BaseModel):
     completed_at: datetime | None = None
     completed_by: str | None = None
     event_type: EventType
-    # Legacy stored events predate graded alerts; do not invent their severity.
-    alert_level: AlertLevel | None = None
+    alert_level: AlertLevel
     timestamp: datetime
     image_url: str | None = None
     image_path: str

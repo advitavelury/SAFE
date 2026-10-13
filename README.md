@@ -2,164 +2,147 @@
 
 **Smart Assisted Fall and Emergency**
 
-Our FIT3161 / FIT3162 prototype detects possible falls and distress events using
-YOLO and shows them in a React dashboard. It is a student project, not a validated
-emergency system.
+SAFE is a FIT3161 / FIT3162 computer-vision prototype for camera-observable distress events in aged-care environments. It is decision support, not a medical device or a clinically validated emergency system.
 
-## Teammate quick start
+## Current implementation
 
-**Run the dashboard and detection on your own laptop. No Vercel setup or tunnel needed.**
+- Shared YOLO pose and ByteTrack pipeline for fall, prolonged sitting, isolation, and movement outside normal hours.
+- The team's React dashboard with Monitor, incident filtering/detail, and draft settings views.
+- Firebase email/password login with active staff approval.
+- FastAPI event endpoints backed by Firestore, with event images in Firebase Storage.
+- Local camera/video processing with YOLO overlays and a `/video_feed` stream.
+- The dashboard still uses its separate Firestore incident schema; integration with the events API remains to be completed.
+- Pacing is not implemented; unusual-hours movement is not pacing.
 
-### First-time setup
+## Repository
 
-**1. Get these ready**
-
-- Python (3.11 recommended), Node.js with npm, and the SAFE repository.
-- Your approved SAFE login. Both **admin and operator/staff** can run detection.
-- The team's **public Firebase web configuration** for `safe-ddacb`.
-- A **private Firebase service-account JSON file** for the same project, supplied securely.
-
-Ask the project admin for the Firebase details and login approval. You do not need
-to create another Firebase project or change its rules.
-
-**2. Open SAFE in VS Code and open a terminal**
-
-Run commands from the main SAFE folder, where `requirements.txt` is located.
-Commit or safely preserve any unfinished code changes before switching branches.
-
-```sh
-git switch main
-git pull --ff-only origin main
+```text
+backend/
+  detection/
+    detection.py           Shared camera/video pipeline
+    detectors/             Fall, sitting, isolation, wandering
+    person.py              Per-track state
+  main.py                  Local detector and FastAPI entry point
+  event.py                 Event persistence and completion
+  event_types.py           Event type and status enums
+  firebase_config.py       Firebase Admin and Storage configuration
+  routes.py                Event and video-feed endpoints
+  streamers.py             Video streaming
+front-end/
+  src/api/                 Firebase, staff approval, event adapters
+  src/components/          Staff login and live camera
+  tests/
+tests/
+firestore.rules
+firebase.json
+requirements.txt
 ```
 
-**3. Install the dependencies**
+## Install
 
-On **Mac/Linux**:
+Python 3.11+ is recommended. From the repository root:
 
-```sh
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-npm ci --prefix front-end
+pip install -r requirements.txt
+cd front-end
+npm ci
 ```
 
-On **Windows PowerShell**:
+## Firebase setup
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
-npm ci --prefix front-end
+1. Use the team's `safe-ddacb` Firebase project and register a Firebase web app in it.
+2. Enable Email/Password in Authentication. Anonymous sign-in is not used.
+3. Create a staff account, then a Firestore document at `users/UID` with `active: true` (boolean) and `role: "admin"` or `"operator"`.
+4. Copy `front-end/.env.example` to `front-end/.env` and fill in the complete web app configuration from `safe-ddacb`. Do not mix its project ID with API keys/app IDs from the former `safe-1426e` project. Restart Vite after changing environment values.
+5. Download a private Admin SDK JSON file for `safe-ddacb` and keep it outside Git (for example, in the ignored `.secrets/` directory). Set the shell environment variable `FIREBASE_SERVICE_ACCOUNT` to its path. Alternatively, the existing default filename `backend/safe-ddacb-firebase-adminsdk-fbsvc-7c69c74b63.json` remains supported. The backend rejects keys from a different project. It does not load `backend/.env` automatically.
+6. Publish the included Firestore rules for the dashboard through the Firebase console, or using the Firebase CLI:
+
+```bash
+firebase deploy --only firestore:rules --project YOUR_PROJECT_ID
 ```
 
-If `.venv` already exists, skip creating it and activate it instead.
+Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
 
-**4. Add your local configuration**
+Approved `admin` accounts can review the dashboard's incident records and complete/delete events through the backend; approved `operator` accounts have read-only access. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Draft browser settings do not configure the Python detectors.
 
-- In VS Code, duplicate `front-end/.env.example` and name the copy `.env` in
-  the same folder. If `.env` already exists, update it instead.
-- Fill in the `VITE_FIREBASE_...` values using the team's public web configuration.
-  Keep `VITE_FIREBASE_INCIDENTS_COLLECTION=incidents`. Leave both API origin fields blank;
-  the launcher connects them for you.
-- Save the private service-account JSON **outside the SAFE folder**, for example
-  in Downloads. Note its full file path for the next command.
+The API requires a Firebase ID token in `Authorization: Bearer <id-token>` for `/auth/me`, `/events`, `/events/{id}` and `/video_feed`. It verifies the token with revocation/disabled-user checks and reads `users/{uid}` from the backend's Firebase project. Missing/invalid tokens return 401, unapproved users and forbidden writes return 403, and verification outages return 503. Profiles must have boolean `active: true` and exactly `admin` or `operator`; anonymous accounts are rejected. Tokens and Firestore profiles are checked on each API request, and ongoing streams recheck access approximately every five seconds. Failed checks end the stream.
 
-**Never put the private JSON contents in `.env`, frontend code, Git or chat.**
-Firebase Console access alone does not replace this backend credential file.
+Event completion uses the verified admin UID. A legacy `completed_by` request field is accepted but ignored, and the body can be omitted. Roles cannot be changed through these endpoints. `/auth/me` returns the verified UID and role for connection checks. This follows [Firebase's server-side ID token verification flow](https://firebase.google.com/docs/auth/admin/verify-id-tokens).
 
-### Start the demo
+## Run the backend
 
-With your virtual environment activated, run:
+From the repository root, with the Python environment activated:
 
-```sh
-python scripts/run_demo.py --service-account "/full/path/to/your-key.json" --record
+```bash
+FIREBASE_SERVICE_ACCOUNT="/absolute/path/to/your-service-account.json" python -m backend.main
 ```
 
-Replace the quoted path with your actual JSON file path. Keep the quotes if the
-path contains spaces. On Windows, use a path such as `"C:\Users\YourName\Downloads\your-key.json"`.
+Choose the input in `backend/main.py` before starting:
 
-**Open the dashboard URL printed in the terminal.** Keep that terminal open.
-The launcher starts both React and the Python detector and chooses available ports.
-Use this local URL, not the Vercel website, for your laptop's demo.
+- For the default webcam, set `video_mode = False`.
+- For a recording, set `video_mode = True` and update `video_footage_path` to an existing video. The current checkout selects video mode and refers to a developer-local test file.
 
-### Use the camera
+The API runs at http://127.0.0.1:8000. Open http://127.0.0.1:8000/docs and use **Authorize** with a Firebase ID token to try the event endpoints. A bare `/video_feed` URL or `<img>` has no bearer header and is intentionally rejected; never put tokens in URLs. The backend opens a local OpenCV window as well. Keep this prototype loopback-only; a remote deployment needs HTTPS and an authenticated streaming client.
 
-1. Sign in, open **Monitor**, and click **Connect webcam**.
-2. Allow camera access. Select your laptop camera if your phone camera is selected.
-3. To save clips, tick **Record red events locally** before starting detection.
-4. Click **Start detection**. A webcam preview by itself does not run detection.
-5. Select **Detection frames** to see the pose and alerts. Keep the full body visible.
-6. After a red event, leave detection running for five more seconds. An **admin**
-   can then open **Incidents -> Review** to play the clip.
+## Run the dashboard
 
-Both staff and admins can start/stop their own detection session. Staff can view
-incident and clip details, but **only admins can play or download incident videos**, edit incidents or
-change detector settings. One session runs per backend at a time.
+In another terminal:
 
-**To stop:** stop detection in the dashboard, then press **Ctrl+C** in the terminal.
-
-### Running it again
-
-From SAFE on `main`, pull updates, activate your environment, and start:
-
-```sh
-git pull --ff-only origin main
-source .venv/bin/activate
-python scripts/run_demo.py --service-account "/full/path/to/your-key.json" --record
+```bash
+cd front-end
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-On Windows, replace the activation line with `.\.venv\Scripts\Activate.ps1`.
-If dependency files changed after pulling, repeat the two install commands from step 3.
+Open http://127.0.0.1:5173 and sign in. The dashboard's camera controls and incident video playback are not connected to the remaining backend. Its incident feed still reads the `incidents` collection by default, while the backend writes `events`; frontend integration is needed before newly detected events appear there. Dashboard review actions do not currently call the backend completion endpoint.
 
-## Recordings: what to expect
+## Event records and API
 
-- **Red events:** a clip is saved only when `--record` and the dashboard checkbox
-  are both enabled. **Amber/yellow events:** event details only, no clip.
-- Event details are shared through Firebase. Videos stay on the recording laptop,
-  normally in `~/.safe/recordings`, not Firebase Storage.
-- Optional [red-incident snapshots](SNAPSHOTS.md) save one redacted still image to
-  Firebase Storage; video playback permissions are unchanged.
-- Another laptop cannot play your local clips. Old events do not gain clips
-  retroactively. Clips expire after 24 hours and may be removed earlier to free space.
-- Saved clips are redacted; the live preview is not. Unclear poses may produce
-  blacked-out frames. Check saved footage: redaction is not guaranteed anonymity.
-- Use consenting teammates and safe staged material. Do not perform real falls.
+The backend stores event metadata in Firestore's `events` collection and annotated JPEG images in Firebase Storage. Each record contains `person_id`, `event_type`, `status`, `timestamp`, and `image_path`. Completion adds `completed_by` and `completed_at`. The document ID is returned as `id`, and event reads generate an image URL valid for one hour.
 
-## Common fixes
+Event types are `fall`, `sitting distress`, `isolation distress`, and `wandering distress`. Status is `open` or `closed`. The detector tracks one outstanding event per person in the current session.
 
-| Problem | What to do |
-| --- | --- |
-| Missing Firebase configuration | Fill in `front-end/.env`, then restart the demo. |
-| JSON file not found | Check the full path in `--service-account`, including `.json`. |
-| Login/access denied | Ask the project admin to check your active staff profile in `safe-ddacb`. |
-| Camera works but no detection | Click **Start detection** and keep the backend terminal open. |
-| Staff cannot start detection | Pull the latest `main`, restart both services, and check staff approval. |
-| No fall alert | Check full-body pose in **Detection frames**. Detection is imperfect; "falling" is not yet a confirmed red alert. |
-| No recording | Check both recording switches, that the event was red, and that you are using the recording laptop. |
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/events` | List events |
+| GET | `/events/{event_id}` | Read one event |
+| POST | `/events/{event_id}/complete` | Complete an event |
+| DELETE | `/events/{event_id}` | Delete an event and its image |
 
-To check local setup without starting the servers, add `--check` to the launch command.
+For completion, send `Content-Type: application/json` with a body such as:
 
-## More details
-
-- [Camera setup and detection limitations](BROWSER_CAMERA.md)
-- [Recording, privacy and playback](RECORDED_VIDEO.md)
-- [Vercel deployment](DEPLOYMENT.md)
-
-<details>
-<summary>Run the automated tests</summary>
-
-With your virtual environment activated:
-
-```sh
-python -B -m unittest discover -s tests -v
-npm test --prefix front-end
+```json
+{"completed_by": "Staff 1"}
 ```
 
-Tests use mocked Firebase services. They do not prove real-camera accuracy or
-privacy. Windows hardware and a fresh Python 3.11 installation still need a device
-check; previous local integration checks used an existing macOS Python environment.
+Event creation and image uploads currently run synchronously in the detection loop. Local incident video recording is not provided by the remaining backend.
 
-</details>
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+cd front-end
+node --test tests/*.test.js tests/*.test.mjs
+npm run build
+```
+
+Install test dependencies with `pip install -r requirements-dev.txt`. Auth-only checks can run without a camera, service-account file or Firebase network calls:
+
+```bash
+python -B -m unittest discover -s tests -p test_staff_auth.py -v
+```
+
+The pulled detector tests currently fail on package imports inconsistent with `backend.detection`; this auth-only change leaves those tests and the detector logic untouched. Unit tests do not establish real-video accuracy or clinical suitability.
+
+## Limitations and next steps
+
+- Connect the dashboard to the event API and video feed; its existing incident schema and camera API differ from the remaining backend.
+- Browser sign-in requires matching `safe-ddacb` web configuration, approved staff profiles, and published Firestore rules. Protected backend API access additionally requires a matching backend service-account file. Auth changes do not connect the remaining dashboard/API workflows.
+- Settings are draft browser preferences, not live detector configuration.
+- Video clip recording, face blur, and SMS/audio delivery are not implemented in the remaining backend.
+- Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
+- Real deployment requires consent, privacy/retention controls, realistic validation, and human review.
 
 ## Team
 

@@ -3,7 +3,5 @@ fastapi
 mediapipe
 numpy
 opencv-python
-Pillow
 ultralytics
 uvicorn
-imageio-ffmpeg>=0.6,<0.7
