@@ -49,8 +49,6 @@ class FallDetector():
         if posture.lower() in ("standing", "falling", "sitting"):
             if current_position == "lying down" and person.down_since is not None: # if the person has been identified as fallen down
                 # only reset the state to standing if they have been standing for more than the recovery grace period time.
-                if person.upright_since is not None:
-                    print(f"the time since the person has stood up is {frame_time-person.upright_since}")
                 if person.upright_since is not None and abs(frame_time-person.upright_since)>= RECOVERY_GRACE_SECONDS:
                     person.down_since = None
                     self.person_posture[person_id] = posture
@@ -73,8 +71,6 @@ class FallDetector():
         if posture is None:  # this could happen when the frame could not pick up valid keypoints
             return None  
         position = self.manage_person_posture(posture, person=person, frame_time=frame_time)
-        print(f"The posture I classified is {posture}, the posture I am appointing is {position}")
-        print(f"========================================")
         box_midpoint = person.box_midpoint()
         label_point = (box_midpoint[0], box_midpoint[1] + LABEL_Y_OFFSET)
         draw_label(frame, position, label_point, LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
@@ -117,11 +113,11 @@ class FallDetector():
         ratio_shoulder = abs(box_height/shoulder_width) if shoulder_width else None
         ratio_box = abs(box_height/box_width)
         
-        print(f"Shoulder width is {shoulder_width}, torso len is {torso_len}, frontality ratio is {frontality_ratio}")
+        #print(f"Shoulder width is {shoulder_width}, torso len is {torso_len}, frontality ratio is {frontality_ratio}")
 
         torso_angle = person.torso_angle
         
-        print(f"The torso angle is {torso_angle}")
+        #print(f"The torso angle is {torso_angle}")
         shoulder_baseline = None
         if ratio_shoulder is not None:
             shoulder_baseline = person.baseline("shoulder") # Get the median shoulder ratio
@@ -129,8 +125,8 @@ class FallDetector():
 
         box_current_vs_median = ratio_box/box_baseline if box_baseline else None
         shoulder_current_vs_median = ratio_shoulder/shoulder_baseline if (ratio_shoulder is not None and shoulder_baseline is not None) else None
-        print(f"The current shoulder ratio is {ratio_shoulder} and median is {shoulder_baseline} and their ratio is {shoulder_current_vs_median}")
-        print(f"The current box ratio is {ratio_box} and median is {box_baseline} and their ratio is { box_current_vs_median}")
+        #print(f"The current shoulder ratio is {ratio_shoulder} and median is {shoulder_baseline} and their ratio is {shoulder_current_vs_median}")
+        #print(f"The current box ratio is {ratio_box} and median is {box_baseline} and their ratio is { box_current_vs_median}")
 
         # CHECK IF THE PERSON IS SITTING 
         if frontality_ratio is not None and frontality_ratio >= 0.60:
@@ -165,13 +161,13 @@ class FallDetector():
             hip_knee_height_ratio = 0.0 if hip_knee_height_ratio is None else hip_knee_height_ratio
             hip_ankle_height_ratio = 0.0 if hip_ankle_height_ratio is None else hip_ankle_height_ratio
             femur_tibia_ratio = 0.0 if femur_tibia_ratio is None else femur_tibia_ratio
-            print(f"hip knee height ratio is {hip_knee_height_ratio:.4f}. hip ankle height ratio is {hip_ankle_height_ratio:.4f}. femur tibia ratio is {femur_tibia_ratio:.4f}")
+            #print(f"hip knee height ratio is {hip_knee_height_ratio:.4f}. hip ankle height ratio is {hip_ankle_height_ratio:.4f}. femur tibia ratio is {femur_tibia_ratio:.4f}")
             if sitting_checks and sitting_votes/sitting_checks > 0.5:
                 return "sitting" 
         else:  
             if knee_centre is not None:
                 knee_hip_angle = person._angle_from_vertical(hip_centre, knee_centre)
-                print(f"The knee hip angle is {knee_hip_angle}")
+                #print(f"The knee hip angle is {knee_hip_angle}")
                 if knee_hip_angle > 60:
                     return "sitting"
                         
@@ -181,18 +177,18 @@ class FallDetector():
         if torso_angle is not None :
             standing_checks += 1
             if torso_angle < standing_threshold:
-                print("standing vote 1")
+                #print("standing vote 1")
                 standing_votes += 1
         if box_current_vs_median is not None and facing_forward:
             standing_checks += 1
             if box_current_vs_median > 0.80:
-                print("standing vote 2")
+                #print("standing vote 2")
                 standing_votes += 1
         if shoulder_current_vs_median is not None and facing_forward:
             standing_checks += 1
             if shoulder_current_vs_median > 0.80:
                 # if both the ratio_shoulder and ratio_box is reducing compared to their respective median, the person must be in the motion of falling 
-                print("standing vote 3")
+                #print("standing vote 3")
                 standing_votes += 1
         if standing_checks > 0 and (standing_votes/standing_checks) > 0.5:
             if facing_forward:
@@ -244,7 +240,7 @@ class FallDetector():
         # Need corroboration from at least two independent checks; if fewer than
         # two were evaluable, demand that every evaluable one agrees.
         required = min(3, lying_down_checks)
-        print(f"required is {required} and votes is {lying_down_votes}")
+        #print(f"required is {required} and votes is {lying_down_votes}")
         if lying_down_checks > 0 and lying_down_votes >= required:
             return "lying down"
         
@@ -252,15 +248,15 @@ class FallDetector():
         compression_votes = 0 
 
         if box_current_vs_median is not None and box_current_vs_median < 0.68:
-            print("compression vote 1")
+            #print("compression vote 1")
             compression_votes += 2
         if shoulder_current_vs_median is not None and shoulder_current_vs_median < 0.80:
-            print("compression vote 2")
+            #print("compression vote 2")
             compression_votes += 1
         if hip_centre[1] - shoulder_centre[1] < 0:  # This is when the person is falling forwards (out of the camera).
-            print("compression vote 4")
+            #print("compression vote 4")
             compression_votes += 1
-        print(f"compression votes are {compression_votes}")
+        #print(f"compression votes are {compression_votes}")
         if compression_votes >= 2:
             return "lying down"
                 
