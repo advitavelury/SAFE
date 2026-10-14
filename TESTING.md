@@ -1,5 +1,26 @@
 # SAFE Testing Plan and Report
 
+## Local video-feed integration - 14 October 2026
+
+- Frontend-only integration on `front-end`: reuses the existing `backend/routes.py` and `backend/streamers.py` without modifying any backend implementation file.
+- Frontend: 33 tests passed, including 12 stream tests covering fragmented/coalesced multipart frames, continuous feeds over 1000 frames/40 MiB, authentication, cancellation, idle timeouts, malformed responses, size limits and decoder errors.
+- Production frontend build passed with the existing large-bundle warning. `git diff --check` passed.
+- Chrome integration checks passed for admin/operator roles at 1440px and 390px. The real backend `setup_routes` and `FrameStreamer` ran on loopback port 8000 with injected test-only identities and moving synthetic frames. The browser used the real Vite proxy and viewer. Pixel checks confirmed changing frames; disconnect cleared the canvas; reconnect resumed frames. Access revocation ended both roles' streams and cleared the last frame. Screenshots were inspected for mobile and desktop layout.
+- The temporary test backend was stopped afterward. No camera, detector model, service-account credentials or production Firebase data were used. Real staff accounts and the intended input source still need a live smoke test. Current `backend/main.py` selects recorded-video mode.
+- Existing event fixtures also exercise metadata/snapshot review separately; the viewer integration does not add recording or Firebase frame uploads. Full historical detector tests and accuracy evaluation remain outside this frontend change.
+- `npm audit` reports 9 advisories in the existing Firebase/build-tool dependency tree (8 high, 1 moderate). Neither new multipart dependency is flagged; existing locked versions were not changed. Dependency upgrades need a separate review. Keep the development servers loopback-only.
+
+## Events dashboard migration - 14 October 2026
+
+- Work is on `front-end`, based on `main` at `dbb4760`. No backend implementation changes were made.
+- Frontend: 21 tests passed, covering the backend event schema, red/amber severity, open/closed status, timestamps, staff approval and authenticated event requests.
+- Firestore emulator: 6 tests passed in `demo-safe-roles`, including the real dashboard query (`events`, descending `timestamp`, limit 50), admin/operator reads, denial for unapproved users, denied browser writes, legacy-collection denial and deactivation.
+- Backend authorization: all 15 tests passed after adding the already-required `alert_level` to the existing mocked event. No production credentials or camera were used.
+- Production frontend build passed with the existing bundle-size warning.
+- Isolated Chrome checks passed for admin/operator roles at 1440px and 390px: event list, filters, snapshot rendering, admin completion, staff read-only controls, permission-error messaging and no clip/incident API requests. A mobile table overflow was corrected. These checks used synthetic data and mocked authentication/API responses, with external production requests blocked.
+- After explicit approval, these Firestore rules were published to `safe-ddacb` through Firebase Console on 14 October 2026 at 10:43 am Melbourne time; the active rules version was verified in the console. The CLI attempt was denied and made no deployment. Existing cloud records and roles were not modified. Real staff login, event snapshots and completion still require live verification with the local backend running.
+- Camera-feed integration, detector accuracy and the full historical Python detector test suite are outside this frontend migration's verification scope. Earlier reports below describe previous code versions.
+
 ## Auth verification update - 8 October 2026
 
 - Re-ran 15 backend authorization tests, 8 Firebase configuration tests and 20 frontend tests; all passed. The frontend production build passed with the existing large-bundle warning.

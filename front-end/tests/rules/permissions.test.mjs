@@ -2,14 +2,15 @@ import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
-import { submitIncidentReview } from '../../src/api/incidentReview.js';
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { createEventQuery } from '../../src/api/eventStore.js';
+import { toDashboardEvent } from '../../src/api/eventAdapter.js';
 
 let env;
-const user = uid => ({ uid, isAnonymous: false });
 const dbFor = uid => env.authenticatedContext(uid, { firebase: { sign_in_provider: 'password' } }).firestore();
-const parent = db => doc(db, 'incidents/event-1');
-const review = (db, id = 'review-1') => doc(db, 'incidents/event-1/reviews', id);
+const record = { person_id: 0, event_type: 'fall', alert_level: 'red', status: 'open',
+  timestamp: new Date('2026-10-14T01:00:00Z'), image_path: 'events/event-1.jpeg' };
+
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'demo-safe-roles', firestore: {
     host: '127.0.0.1', port: 8088,
@@ -24,78 +25,69 @@ beforeEach(async () => {
     for (const [uid, role, active] of [['admin', 'admin', true], ['operator', 'operator', true], ['disabled', 'admin', false]]) {
       await setDoc(doc(db, 'users', uid), { role, active });
     }
-    await setDoc(parent(db), { type: 'fall', status: 'active', note: 'Original detection', createdAt: new Date(), zoneId: 'A' });
+    await setDoc(doc(db, 'events/event-1'), record);
+    await setDoc(doc(db, 'incidents/legacy'), { type: 'fall', createdAt: new Date() });
   });
 });
 
-function batchReview(db, { action = 'acknowledge', status = 'acknowledged', outcome = 'unconfirmed', actorId = 'admin', note = '', extra = {}, id = 'review-1' } = {}) {
-  const batch = writeBatch(db);
-  batch.update(parent(db), { status, outcome, responder: actorId, updatedAt: serverTimestamp(), lastReviewId: id, ...extra });
-  batch.set(review(db, id), { action, status, outcome, actorId, note, createdAt: serverTimestamp() });
-  return batch.commit();
-}
+test('approved admin and operator read the real events query and backend schema', async () => {
+  for (const uid of ['admin', 'operator']) {
+    const snapshot = await assertSucceeds(getDocs(createEventQuery(dbFor(uid))));
+    assert.equal(snapshot.size, 1);
+    const event = toDashboardEvent(snapshot.docs[0].id, snapshot.docs[0].data());
+    assert.equal(event.id, 'event-1');
+    assert.equal(event.trackId, 0);
+    assert.equal(event.severity, 'high');
+    assert.equal(event.status, 'open');
+    assert.equal(event.occurredAt, record.timestamp.toISOString());
+  }
+});
 
-test('active admin and operator read incidents; others cannot', async () => {
-  for (const uid of ['admin', 'operator']) await assertSucceeds(getDoc(parent(dbFor(uid))));
-  for (const uid of ['disabled', 'unknown']) await assertFails(getDoc(parent(dbFor(uid))));
-  await assertFails(getDoc(parent(env.unauthenticatedContext().firestore())));
-  await assertFails(getDoc(parent(env.authenticatedContext('admin', { firebase: { sign_in_provider: 'anonymous' } }).firestore())));
+test('query uses timestamp ordering and a 50-event limit, not createdAt', async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    for (let i = 0; i < 55; i++) await setDoc(doc(context.firestore(), 'events', `ordered-${i}`), {
+      ...record, timestamp: new Date(record.timestamp.getTime() + (i + 1) * 1000),
+    });
+  });
+  const snapshot = await getDocs(createEventQuery(dbFor('operator')));
+  assert.equal(snapshot.size, 50);
+  assert.equal(snapshot.docs[0].id, 'ordered-54');
+  assert.equal(snapshot.docs.at(-1).id, 'ordered-5');
 });
-test('real transaction supports acknowledge, resolve and notes with immutable history', async () => {
-  const db = dbFor('admin');
-  await assertSucceeds(submitIncidentReview(db, user('admin'), 'event-1', 'acknowledge', 'Checked'));
-  await assertSucceeds(submitIncidentReview(db, user('admin'), 'event-1', 'resolve', 'Confirmed'));
-  await assertSucceeds(submitIncidentReview(db, user('admin'), 'event-1', 'add_note', 'Follow-up'));
-  const data = (await getDoc(parent(db))).data();
-  assert.equal(data.status, 'resolved');
-  assert.equal(data.outcome, 'confirmed');
-  assert.equal(data.note, 'Original detection');
-  const entry = review(db, data.lastReviewId);
-  assert.equal((await getDoc(entry)).data().actorId, 'admin');
-  await assertFails(updateDoc(entry, { note: 'Tampered' }));
-  await assertFails(deleteDoc(entry));
-  await assertSucceeds(getDoc(review(dbFor('operator'), data.lastReviewId)));
+
+test('unapproved, disabled, anonymous and signed-out users cannot read events', async () => {
+  const databases = [dbFor('disabled'), dbFor('unknown'), env.unauthenticatedContext().firestore(),
+    env.authenticatedContext('admin', { firebase: { sign_in_provider: 'anonymous' } }).firestore()];
+  for (const db of databases) {
+    await assertFails(getDoc(doc(db, 'events/event-1')));
+    await assertFails(getDocs(createEventQuery(db)));
+  }
 });
-test('operators cannot write even when bypassing the application', async () => {
+
+test('all browser writes are denied, including admins bypassing backend completion', async () => {
+  for (const uid of ['admin', 'operator', 'disabled', 'unknown']) {
+    const db = dbFor(uid);
+    await assertFails(setDoc(doc(db, 'events/new'), record));
+    await assertFails(updateDoc(doc(db, 'events/event-1'), { status: 'closed', completed_by: uid }));
+    await assertFails(deleteDoc(doc(db, 'events/event-1')));
+    await assertFails(setDoc(doc(db, 'events/event-1/reviews/new'), { note: 'Bypass' }));
+    await assertFails(updateDoc(doc(db, 'users', uid), { role: 'admin', active: true }));
+  }
+});
+
+test('legacy incidents are inaccessible and staff can only read their own profile', async () => {
+  for (const uid of ['admin', 'operator']) {
+    const db = dbFor(uid);
+    await assertFails(getDoc(doc(db, 'incidents/legacy')));
+    await assertFails(setDoc(doc(db, 'incidents/new'), record));
+    await assertSucceeds(getDoc(doc(db, 'users', uid)));
+    await assertFails(getDoc(doc(db, 'users', uid === 'admin' ? 'operator' : 'admin')));
+  }
+});
+
+test('staff deactivation denies subsequent event reads', async () => {
   const db = dbFor('operator');
-  await assertFails(batchReview(db, { actorId: 'operator' }));
-  await assertFails(updateDoc(parent(db), { status: 'resolved' }));
-  await assertFails(setDoc(review(db), { note: 'Bypass' }));
-  await assertFails(deleteDoc(parent(db)));
-});
-test('unapproved and disabled admins cannot write', async () => {
-  for (const uid of ['disabled', 'unknown']) await assertFails(batchReview(dbFor(uid), { actorId: uid }));
-});
-test('admins cannot alter detection data, invent incidents or self-promote accounts', async () => {
-  const db = dbFor('admin');
-  await assertFails(batchReview(db, { extra: { type: 'false' } }));
-  await assertFails(batchReview(db, { extra: { note: 'Rewritten detection' } }));
-  await assertFails(setDoc(doc(db, 'incidents/new'), { type: 'fall' }));
-  await assertFails(deleteDoc(parent(db)));
-  await assertFails(updateDoc(doc(db, 'users/admin'), { role: 'operator' }));
-  await assertFails(updateDoc(doc(dbFor('operator'), 'users/operator'), { role: 'admin' }));
-});
-test('writes require atomic matching audit with genuine actor and valid transition', async () => {
-  const db = dbFor('admin');
-  await assertFails(updateDoc(parent(db), { status: 'acknowledged', outcome: 'unconfirmed', responder: 'admin', updatedAt: serverTimestamp(), lastReviewId: 'missing' }));
-  await assertFails(setDoc(review(db), { action: 'acknowledge', status: 'acknowledged', outcome: 'unconfirmed', actorId: 'admin', note: '', createdAt: serverTimestamp() }));
-  await assertFails(batchReview(db, { actorId: 'operator' }));
-  await assertFails(batchReview(db, { action: 'reopen' }));
-  await assertFails(batchReview(db, { action: 'add_note', note: '' }));
-  await assertFails(batchReview(db, { note: 'x'.repeat(1001) }));
-});
-test('false alarm resolves without changing detector type; stale responses fail', async () => {
-  const db = dbFor('admin');
-  await assertSucceeds(batchReview(db, { action: 'false_alarm', status: 'resolved', outcome: 'false_alarm' }));
-  const data = (await getDoc(parent(db))).data();
-  assert.equal(data.type, 'fall');
-  assert.equal(data.outcome, 'false_alarm');
-  await assertFails(batchReview(db, { id: 'stale-review' }));
-  await assert.rejects(submitIncidentReview(db, user('admin'), 'event-1', 'resolve', 'Stale'));
-});
-test('role demotion immediately prevents subsequent Firestore writes', async () => {
-  const db = dbFor('admin');
-  await assertSucceeds(batchReview(db));
-  await env.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'users/admin'), { role: 'operator' }));
-  await assertFails(batchReview(db, { action: 'resolve', status: 'resolved', outcome: 'confirmed', id: 'after-demotion' }));
+  await assertSucceeds(getDocs(createEventQuery(db)));
+  await env.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'users/operator'), { active: false }));
+  await assertFails(getDocs(createEventQuery(db)));
 });

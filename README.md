@@ -11,7 +11,7 @@ SAFE is a FIT3161 / FIT3162 computer-vision prototype for camera-observable dist
 - Firebase email/password login with active staff approval.
 - FastAPI event endpoints backed by Firestore, with event images in Firebase Storage.
 - Local camera/video processing with YOLO overlays and a `/video_feed` stream.
-- The dashboard still uses its separate Firestore incident schema; integration with the events API remains to be completed.
+- The dashboard subscribes to Firestore's `events` collection using the backend's schema. Admin completion and snapshot retrieval use the existing FastAPI event endpoints.
 - Pacing is not implemented; unusual-hours movement is not pacing.
 
 ## Repository
@@ -65,7 +65,7 @@ firebase deploy --only firestore:rules --project YOUR_PROJECT_ID
 
 Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
 
-Approved `admin` accounts can review the dashboard's incident records and complete/delete events through the backend; approved `operator` accounts have read-only access. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Draft browser settings do not configure the Python detectors.
+Approved `admin` accounts can mark events complete from the dashboard through the backend; approved `operator` accounts have read-only access. The backend also exposes an admin-only delete endpoint; the dashboard does not provide deletion. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Draft browser settings do not configure the Python detectors.
 
 The API requires a Firebase ID token in `Authorization: Bearer <id-token>` for `/auth/me`, `/events`, `/events/{id}` and `/video_feed`. It verifies the token with revocation/disabled-user checks and reads `users/{uid}` from the backend's Firebase project. Missing/invalid tokens return 401, unapproved users and forbidden writes return 403, and verification outages return 503. Profiles must have boolean `active: true` and exactly `admin` or `operator`; anonymous accounts are rejected. Tokens and Firestore profiles are checked on each API request, and ongoing streams recheck access approximately every five seconds. Failed checks end the stream.
 
@@ -95,11 +95,15 @@ cd front-end
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Open http://127.0.0.1:5173 and sign in. The dashboard's camera controls and incident video playback are not connected to the remaining backend. Its incident feed still reads the `incidents` collection by default, while the backend writes `events`; frontend integration is needed before newly detected events appear there. Dashboard review actions do not currently call the backend completion endpoint.
+Open http://127.0.0.1:5173 and sign in. The dashboard reads the latest 50 `events`, ordered by `timestamp`, and displays `event_type`, `alert_level`, `person_id`, `status`, `completed_by` and `completed_at`. Publish this branch's `firestore.rules` before using it: approved staff can read events, while browser writes are denied. Admin completion uses `POST /events/{id}/complete` so the backend also clears its detector latch. Snapshot review uses `GET /events/{id}` for a signed image URL. Vite proxies `/api/events` to `http://127.0.0.1:8000/events`; keep the Python backend running for these actions. No private key goes into the frontend.
+
+The old `VITE_FIREBASE_INCIDENTS_COLLECTION` setting is no longer used. Existing `incidents` documents are left untouched but are not queried or modified. The separate incident note, acknowledgement, false-alarm and video-playback workflows have been removed from the active dashboard; backend events support open/closed status and JPEG snapshots.
+
+The Monitor viewer connects to the existing `/video_feed` stream through Vite's `/api/video-feed` proxy, using the signed-in staff member's bearer token. Both approved roles can view the backend's annotated frames. Disconnect/reconnect affects only the viewer, not the running detector. The source is whatever `backend/main.py` selects (currently a test video), not a second browser webcam. Keep both terminals open. This is a local development connection, not a Vercel-to-laptop tunnel; see `front-end/README.md` for details.
 
 ## Event records and API
 
-The backend stores event metadata in Firestore's `events` collection and annotated JPEG images in Firebase Storage. Each record contains `person_id`, `event_type`, `status`, `timestamp`, and `image_path`. Completion adds `completed_by` and `completed_at`. The document ID is returned as `id`, and event reads generate an image URL valid for one hour.
+The backend stores event metadata in Firestore's `events` collection and cropped, blurred JPEG snapshots in Firebase Storage. Each record contains `person_id`, `event_type`, `status`, `timestamp`, and `image_path`. Completion adds `completed_by` and `completed_at`. The document ID is returned as `id`, and event reads generate an image URL valid for one hour.
 
 Event types are `fall`, `sitting distress`, `isolation distress`, and `wandering distress`. Status is `open` or `closed`. The detector tracks one outstanding event per person in the current session.
 
@@ -116,7 +120,7 @@ For completion, send `Content-Type: application/json` with a body such as:
 {"completed_by": "Staff 1"}
 ```
 
-Event creation and image uploads currently run synchronously in the detection loop. Local incident video recording is not provided by the remaining backend.
+Event creation and image uploads run in the backend's worker pool. Local incident video recording is not provided by the remaining backend.
 
 ## Tests
 
@@ -137,10 +141,10 @@ The pulled detector tests currently fail on package imports inconsistent with `b
 
 ## Limitations and next steps
 
-- Connect the dashboard to the event API and video feed; its existing incident schema and camera API differ from the remaining backend.
-- Browser sign-in requires matching `safe-ddacb` web configuration, approved staff profiles, and published Firestore rules. Protected backend API access additionally requires a matching backend service-account file. Auth changes do not connect the remaining dashboard/API workflows.
+- Verify the connected `/video_feed` viewer with real staff accounts and the intended webcam/video source; automated stream checks use synthetic frames.
+- Browser sign-in requires matching `safe-ddacb` web configuration, approved staff profiles, and published Firestore rules. Protected backend API access additionally requires a matching backend service-account file. Frontend event reads require the updated event-read rules; snapshot/completion actions also require the running local backend.
 - Settings are draft browser preferences, not live detector configuration.
-- Video clip recording, face blur, and SMS/audio delivery are not implemented in the remaining backend.
+- Video clip recording and SMS/audio delivery are not implemented in the remaining backend. Event snapshots are blurred by the backend; the live preview is not anonymised.
 - Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
 - Real deployment requires consent, privacy/retention controls, realistic validation, and human review.
 
