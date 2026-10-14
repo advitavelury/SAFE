@@ -1,8 +1,11 @@
 import { MultipartParser } from '@remix-run/multipart-parser';
 import { ContentType } from '@remix-run/headers/content-type';
 
-export async function streamVideoFeed(user, { signal, onFrame, idleMs = 30000 } = {}) {
+export async function streamVideoFeed(user, { signal, onFrame, idleMs = 30000, generation } = {}) {
   if (!user || user.isAnonymous) throw new Error('Staff sign-in required.');
+  if (generation !== undefined && (!Number.isInteger(generation) || generation < 0)) {
+    throw new Error('Invalid video source generation.');
+  }
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
   signal?.addEventListener('abort', abort, { once: true });
@@ -28,13 +31,15 @@ export async function streamVideoFeed(user, { signal, onFrame, idleMs = 30000 } 
     const token = await Promise.race([user.getIdToken(), cancelled]);
     controller.signal.removeEventListener('abort', cancelTokenWait);
     controller.signal.throwIfAborted();
-    const response = await fetch('/api/video-feed', {
+    const url = generation === undefined ? '/api/video-feed' : `/api/video-feed?generation=${generation}`;
+    const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store', signal: controller.signal,
     });
     reader = response.body?.getReader();
     if (response.status === 401) throw new Error('Video access expired. Sign in again and reconnect.');
     if (response.status === 403) throw new Error('Video access denied. An active staff account is required.');
+    if (response.status === 409) throw new Error('Video source changed. Reconnecting to the selected source...');
     if (!response.ok) throw new Error('Video feed unavailable. Start the Python backend on port 8000.');
     const type = ContentType.from(response.headers.get('content-type'));
     if (type.mediaType?.toLowerCase() !== 'multipart/x-mixed-replace' || !type.boundary || !reader) {
