@@ -232,6 +232,18 @@ Suggested manual test table:
 
 ## Testing Limitations
 
+### Live / Video source toggle verification (14 October 2026)
+
+- `npm test` in `front-end`: 38 tests passed, including source-control requests, invalid responses, cancellation, and generation-scoped streams.
+- `python -B -m unittest discover -s tests -p test_video_source.py`: 12 tests passed. Covers idle startup, camera release before switching, stop during loading, fresh replay sessions, video EOF, missing video/camera failures, staff authorization and stale streams.
+- `python -B -m unittest discover -s tests -p test_staff_auth.py`: 15 tests passed. Existing admin event permissions remain unchanged.
+- `npm run build`: passed, with the existing large-bundle warning.
+- Browser checks: admin/operator fixtures at 1440 px and 390 px; moving canvas, Live/Video switching, Stop clearing frames, EOF/Replay, source generation through the real Vite proxy, access revocation, and no horizontal overflow or page errors. These checks used synthetic inputs and fake staff accounts, with no Firebase writes.
+- Real-input smoke check: the existing YOLO `VideoMode` processed the first 20 frames of the bundled video, tracked two people, produced annotated frames, released the video capture, and made no OpenCV GUI calls. Firebase and settings were stubbed during this check. This does not verify the complete fall sequence or cloud event creation.
+- The dashboard launcher started successfully with the configured local credentials; unauthenticated source requests returned 401. The actual webcam and end-to-end event persistence still require a manual check.
+
+Run the dashboard launcher, select Video, wait for a detector event, then switch to Live and check the intended webcam. Stop should release the camera; Replay should restart the video. Both sources use the existing shared Firebase event pipeline, so manual testing can create real demo events. Earlier detector test results in this document are historical, not a claim that the full current detector suite was rerun.
+
 - Unit tests prove the logic behaves as expected for controlled inputs, but they do not prove real-world detection accuracy.
 - Camera position, lighting, occlusion, body visibility, and model confidence can all affect real detection results.
 - Current thresholds are prototype/demo values and must not be treated as clinically validated.

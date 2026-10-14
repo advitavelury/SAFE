@@ -15,7 +15,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 Open http://127.0.0.1:5173. Metadata is read directly from Firestore, so listing events does not need the Python backend. No private service-account key belongs in this frontend.
 
-For snapshots and admin completion, run `python -m backend.main` from the repository root with the backend virtual environment and `FIREBASE_SERVICE_ACCOUNT` configured. See the root README for setup. Vite forwards `/api/events/...` to the existing FastAPI `/events/...` routes on port 8000.
+For detection, snapshots and admin completion, run `python -m backend.dashboard` from the repository root with the backend virtual environment and `FIREBASE_SERVICE_ACCOUNT` configured. See the root README for setup. Vite forwards `/api/events/...` to the existing FastAPI `/events/...` routes on port 8000.
 
 ## Event contract
 
@@ -31,14 +31,18 @@ The dashboard no longer reads or writes `incidents`, its `reviews` subcollection
 
 ## Local video feed
 
-Run the existing Python backend in a separate terminal, then open the dashboard's Monitor page. The viewer connects automatically for approved admins and operators:
+Run `python -m backend.dashboard` in a separate terminal, then open Monitor. Choose **Live** or **Video** to start detection. Both approved admins and operators can control this shared source:
 
-`backend/main.py` -> existing `FrameStreamer` -> `/video_feed` (port 8000) -> Vite `/api/video-feed` -> React viewer (port 5173).
+`backend/dashboard.py` -> existing `CameraMode` / `VideoMode` -> existing `FrameStreamer` -> `/video_feed` (port 8000) -> Vite `/api/video-feed` -> React viewer (port 5173).
 
 The request includes the signed-in user's Firebase bearer token. The backend still controls access and rechecks it during streaming. No token goes into a URL. The frontend parses the MJPEG response and displays annotated JPEG frames; it does not run another detector or request the browser's webcam.
 
-- The feed shows whichever source the backend is running. Currently `backend/main.py` selects a recorded test video (`video_mode = True`); its existing `CameraMode` path is used when that flag is false. No backend source selection or detection logic was changed for this integration.
-- Disconnect/reconnect affects only this viewer, not the Python camera/detector. If the feed stops or sends no complete frames for 30 seconds, the last image is cleared and a reconnect control appears.
+- Live opens the backend computer's default camera. Set `SAFE_CAMERA_INDEX` before starting Python if index 0 is not the intended desktop camera. This is not the webcam on a separate remote viewer's device.
+- Video processes the bundled `Final_pitch_1.mp4`, which is identical to the supplied `fall.mp4`. The displayed frames include the team's detection overlays, not just raw MP4 playback. No additional 72 MB copy or browser upload is needed.
+- Stop releases the source. Switching restarts tracking with a fresh detector session; all connected viewers follow the shared source. At the end of the video, use Replay to run it again. There is no automatic loop.
+- Reconnect only reconnects this viewer. If the feed stops or sends no complete frames for 30 seconds, the last image is cleared. Changing source also clears old frames and invalidates old stream sessions.
+- Both modes can save detected events and snapshots to the same Firebase project, including on replay. The detector logic, thresholds and event schema are unchanged.
+- The original `python -m backend.main` launcher is preserved but does not provide the source toggle. Stop it before using the dashboard launcher on port 8000.
 - The feed has no per-frame source timestamp. A connected stream does not prove the input is a live camera or that the detector is progressing.
 - This proxy is for `npm run dev` on the same computer as Python. It does not connect a deployed Vercel app to a teammate's laptop.
 - Streaming does not upload the frames to Firebase. The existing backend remains responsible for event snapshots. Streamed frames are not promised to have face blur.

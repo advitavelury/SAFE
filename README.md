@@ -23,6 +23,8 @@ backend/
     detectors/             Fall, sitting, isolation, wandering
     person.py              Per-track state
   main.py                  Local detector and FastAPI entry point
+  dashboard.py             Dashboard-controlled Live / Video launcher
+  video_source.py          Serial camera/video source lifecycle
   event.py                 Event persistence and completion
   event_types.py           Event type and status enums
   firebase_config.py       Firebase Admin and Storage configuration
@@ -76,15 +78,20 @@ Event completion uses the verified admin UID. A legacy `completed_by` request fi
 From the repository root, with the Python environment activated:
 
 ```bash
-FIREBASE_SERVICE_ACCOUNT="/absolute/path/to/your-service-account.json" python -m backend.main
+FIREBASE_SERVICE_ACCOUNT="/absolute/path/to/your-service-account.json" python -m backend.dashboard
 ```
 
-Choose the input in `backend/main.py` before starting:
+Open Monitor in the dashboard and choose **Live** or **Video**:
 
-- For the default webcam, set `video_mode = False`.
-- For a recording, set `video_mode = True` and update `video_footage_path` to an existing video. The current checkout selects video mode and refers to a developer-local test file.
+- **Live** opens camera index 0 on the computer running Python and uses the existing `CameraMode` detector. To select another camera, set `SAFE_CAMERA_INDEX=1` (or the appropriate index) before starting Python. Allow camera access for Python/Terminal in macOS settings. Close other apps using that camera.
+- **Video** runs the existing `VideoMode` detector on the bundled `backend/detection/fall footage/Final_pitch_1.mp4`. This is byte-for-byte identical to the supplied `fall.mp4`; no second copy is needed.
+- Startup is idle. Switching stops the previous source and starts a fresh tracking session. **Stop** releases the camera/video. Video stops at the end; **Replay** starts it again, without automatic looping.
+- Both approved admins and operators can select or stop the shared source. This affects all dashboard viewers attached to that backend. Operators still cannot complete or delete events.
+- Both modes retain the team's event persistence: detections can create events and snapshots in shared Firebase. Replay can create new events. There is no separate dry-run mode.
 
-The API runs at http://127.0.0.1:8000. Open http://127.0.0.1:8000/docs and use **Authorize** with a Firebase ID token to try the event endpoints. A bare `/video_feed` URL or `<img>` has no bearer header and is intentionally rejected; never put tokens in URLs. The backend opens a local OpenCV window as well. Keep this prototype loopback-only; a remote deployment needs HTTPS and an authenticated streaming client.
+The API runs at http://127.0.0.1:8000. The dashboard launcher displays processed frames in React without an OpenCV window. Stop any previous backend on that port before starting it. The original `python -m backend.main` launcher and its fixed-source/OpenCV-window behaviour remain available, but do not support the dashboard toggle.
+
+Open http://127.0.0.1:8000/docs and use **Authorize** with a Firebase ID token to try the event endpoints. A bare `/video_feed` URL or `<img>` has no bearer header and is intentionally rejected; never put tokens in URLs. Keep this prototype loopback-only; a remote deployment needs HTTPS and an authenticated streaming client.
 
 ## Run the dashboard
 
@@ -99,7 +106,7 @@ Open http://127.0.0.1:5173 and sign in. The dashboard reads the latest 50 `event
 
 The old `VITE_FIREBASE_INCIDENTS_COLLECTION` setting is no longer used. Existing `incidents` documents are left untouched but are not queried or modified. The separate incident note, acknowledgement, false-alarm and video-playback workflows have been removed from the active dashboard; backend events support open/closed status and JPEG snapshots.
 
-The Monitor viewer connects to the existing `/video_feed` stream through Vite's `/api/video-feed` proxy, using the signed-in staff member's bearer token. Both approved roles can view the backend's annotated frames. Disconnect/reconnect affects only the viewer, not the running detector. The source is whatever `backend/main.py` selects (currently a test video), not a second browser webcam. Keep both terminals open. This is a local development connection, not a Vercel-to-laptop tunnel; see `front-end/README.md` for details.
+The Monitor viewer connects to the existing `/video_feed` stream through Vite's `/api/video-feed` proxy, using the signed-in staff member's bearer token. The Live / Video toggle uses `/video_source` to select the backend input; React does not run a second detector or capture a browser webcam. Reconnect reconnects only the viewer, while Stop stops detection for everyone on that backend. Keep both terminals open. This is a local development connection, not a Vercel-to-laptop tunnel; see `front-end/README.md` for details.
 
 ## Event records and API
 
@@ -135,6 +142,7 @@ Install test dependencies with `pip install -r requirements-dev.txt`. Auth-only 
 
 ```bash
 python -B -m unittest discover -s tests -p test_staff_auth.py -v
+python -B -m unittest discover -s tests -p test_video_source.py -v
 ```
 
 The pulled detector tests currently fail on package imports inconsistent with `backend.detection`; this auth-only change leaves those tests and the detector logic untouched. Unit tests do not establish real-video accuracy or clinical suitability.
