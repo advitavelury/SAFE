@@ -141,7 +141,7 @@ class Program(ABC):
         return None
 
 
-    def run(self, stop_event: Event):
+    def run(self, stop_event: Event, *, preview_window=True):
         cam = self.get_cam()
         model = self.model
         try:
@@ -152,7 +152,7 @@ class Program(ABC):
                 ret, frame = cam.read()
 
                 # Exit the loop if the frame was not captured or 'q' is pressed 
-                if not ret or (cv2.waitKey(1) == ord('q')):
+                if not ret or (preview_window and cv2.waitKey(1) == ord('q')):
                     break
 
                 with self.frame_lock: # variables are shared by the FrameStreamer method
@@ -241,9 +241,12 @@ class Program(ABC):
                 with self.frame_lock: # variable is shared by the FrameStreamer method
                     self.current_annotated_frame = display_frame.copy()
 
-                cv2.imshow('frame', display_frame)
+                if preview_window:
+                    cv2.imshow('frame', display_frame)
 
-                if self.is_video_mode():
+                if self.is_video_mode() and not preview_window:
+                    stop_event.wait(PLAYBACK_DELAY_MS / 1000)
+                elif self.is_video_mode():
                     # waitKey(0) blocks indefinitely, which is what gives us pause
                     key = cv2.waitKey(0 if self.paused else PLAYBACK_DELAY_MS) & 0xFF # we AND with 0xFF for bitwise AND only to preserve the lower 8 bits
                     if key == ord('q'):
@@ -255,7 +258,8 @@ class Program(ABC):
         finally: # runs after an except or try block
             # Release the capture objects 
             cam.release()
-            cv2.destroyAllWindows()
+            if preview_window:
+                cv2.destroyAllWindows()
             self.event_executor.shutdown(wait=True)
 
     def update_person_properties(self, kp, conf, box, frame_h, frame_w, person: Person):
@@ -339,9 +343,9 @@ class VideoMode(Program):
         return (self.frame_index/self.fps) # For video files
 
 class CameraMode(Program):
-    def __init__(self, frame_lock:Lock):
+    def __init__(self, frame_lock:Lock, camera_index=0):
         super().__init__(frame_lock=frame_lock)
-        self.cam = cv2.VideoCapture(0)
+        self.cam = cv2.VideoCapture(camera_index)
         self.fps = 0 
         self.prev_time = 0 
         self.new_time = 0
