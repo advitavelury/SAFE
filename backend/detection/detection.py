@@ -35,7 +35,11 @@ class Program(ABC):
         # Open the default camera. A laptop only has 1 webcame so use index 0. 
         # Use the ONNX version if the run time is slow. 
         dir = os.path.dirname(os.path.abspath(__file__))
-        self.model = YOLO(os.path.join(dir, 'yolo26s-pose.pt'))
+        #self.model = YOLO(os.path.join(dir, 'yolo26s-pose.pt'))
+        self.model = YOLO(
+                        os.path.join(dir, 'yolo26s-pose.onnx'),
+                        task='pose',
+                    )
         self.frame_lock = frame_lock
         self.current_raw_frame = None
         self.current_annotated_frame = None 
