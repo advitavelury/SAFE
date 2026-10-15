@@ -133,7 +133,7 @@ SITTING_MIN_BOX_ASPECT = 0.75
 # minute-plus of genuinely not sitting breaks the streak.
 # Unreadable frames (classify_posture -> None) never reach manage_person_posture
 # at all, so they don't count either way.
-SITTING_BREAK_SECONDS = 60.0
+SITTING_BREAK_SECONDS = 3.0
 
 # --- box + label rendering ---------------------------------------------------
 
