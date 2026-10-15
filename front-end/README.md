@@ -47,7 +47,13 @@ The request includes the signed-in user's Firebase bearer token. The backend sti
 - This proxy is for `npm run dev` on the same computer as Python. It does not connect a deployed Vercel app to a teammate's laptop.
 - Streaming does not upload the frames to Firebase. The existing backend remains responsible for event snapshots. Streamed frames are not promised to have face blur.
 
-Browser settings remain draft preferences; they do not configure the detector.
+## Demo thresholds in seconds
+
+With the Python backend running, sign in as an admin and open **Settings**. Prolonged sitting and isolation are editable in **seconds**, loaded from the existing backend settings API. Set prolonged sitting to `30` and click **Save thresholds** for the class demo. Leave isolation unchanged unless you also want a shorter isolation demo.
+
+Saving uses the authenticated `PATCH /admin/detector-settings` endpoint. The existing service persists the values in `settings/detectors` and queues them for the active detector. Only changed duration fields are sent; normal hours, sitting break duration and warning fraction are preserved. Operators cannot access this admin-only endpoint. Old browser-only minute preferences are ignored, not migrated into production settings.
+
+For a fresh demonstration, save first, then stop and restart Live or Video so existing tracked sitting time and outstanding-event latches do not carry over. With the default warning fraction of 0.5, a 30-second sitting threshold gives amber at 15 seconds and red at 30 seconds of detected sitting. Video uses source-video time, so slow processing can take longer than 30 wall-clock seconds. Camera visibility and pose classification still affect results. Restore your intended thresholds after the demo; saved settings are shared and persist beyond this browser.
 
 ## Verify
 

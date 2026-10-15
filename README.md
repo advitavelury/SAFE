@@ -7,7 +7,7 @@ SAFE is a FIT3161 / FIT3162 computer-vision prototype for camera-observable dist
 ## Current implementation
 
 - Shared YOLO pose and ByteTrack pipeline for fall, prolonged sitting, isolation, and movement outside normal hours.
-- The team's React dashboard with Monitor, incident filtering/detail, and draft settings views.
+- The team's React dashboard with Monitor, incident filtering/detail, and admin detector settings in seconds.
 - Firebase email/password login with active staff approval.
 - FastAPI event endpoints backed by Firestore, with event images in Firebase Storage.
 - Local camera/video processing with YOLO overlays and a `/video_feed` stream.
@@ -67,7 +67,7 @@ firebase deploy --only firestore:rules --project YOUR_PROJECT_ID
 
 Never commit real environment files or service-account keys. Example files contain placeholders only. The Admin SDK bypasses client rules, so its credentials must remain on the trusted backend.
 
-Approved `admin` accounts can mark events complete from the dashboard through the backend; approved `operator` accounts have read-only access. The backend also exposes an admin-only delete endpoint; the dashboard does not provide deletion. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Draft browser settings do not configure the Python detectors.
+Approved `admin` accounts can mark events complete from the dashboard through the backend; approved `operator` accounts have read-only access. The backend also exposes an admin-only delete endpoint; the dashboard does not provide deletion. Use the Authentication account's exact UID for the `users/UID` document in `safe-ddacb`. Accounts and profiles in the former project do not automatically transfer. Admins can edit sitting and isolation durations in seconds through the existing backend settings API.
 
 The API requires a Firebase ID token in `Authorization: Bearer <id-token>` for `/auth/me`, `/events`, `/events/{id}` and `/video_feed`. It verifies the token with revocation/disabled-user checks and reads `users/{uid}` from the backend's Firebase project. Missing/invalid tokens return 401, unapproved users and forbidden writes return 403, and verification outages return 503. Profiles must have boolean `active: true` and exactly `admin` or `operator`; anonymous accounts are rejected. Tokens and Firestore profiles are checked on each API request, and ongoing streams recheck access approximately every five seconds. Failed checks end the stream.
 
@@ -151,7 +151,7 @@ The pulled detector tests currently fail on package imports inconsistent with `b
 
 - Verify the connected `/video_feed` viewer with real staff accounts and the intended webcam/video source; automated stream checks use synthetic frames.
 - Browser sign-in requires matching `safe-ddacb` web configuration, approved staff profiles, and published Firestore rules. Protected backend API access additionally requires a matching backend service-account file. Frontend event reads require the updated event-read rules; snapshot/completion actions also require the running local backend.
-- Settings are draft browser preferences, not live detector configuration.
+- Sitting and isolation durations are saved through the admin-only settings API; keep Python running. Save a 30-second sitting threshold before starting a fresh demo session, and restore intended thresholds afterwards.
 - Video clip recording and SMS/audio delivery are not implemented in the remaining backend. Event snapshots are blurred by the backend; the live preview is not anonymised.
 - Detection thresholds and geometry remain those supplied by the team; no accuracy claims are made.
 - Real deployment requires consent, privacy/retention controls, realistic validation, and human review.
