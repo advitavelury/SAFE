@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/api/admin/detector-settings": {
+        target: "http://127.0.0.1:8000",
+        rewrite: path => path.replace(/^\/api/, ""),
+      },
       "/api/video-source": {
         target: "http://127.0.0.1:8000",
         rewrite: () => "/video_source",
