@@ -5,3 +5,4 @@ numpy
 opencv-python
 ultralytics
 uvicorn
+pyobjc-framework-AVFoundation>=10,<12; sys_platform == "darwin"

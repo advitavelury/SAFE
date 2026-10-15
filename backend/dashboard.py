@@ -14,7 +14,7 @@ from .video_source import VideoSourceController
 def main():
     frame_lock = Lock()
     settings = DetectorSettingsService()
-    video_path = Path(__file__).parent / "detection" / "fall footage" / "Final_pitch_1.mp4"
+    video_path = Path(__file__).parent / "detection" / "fall footage" / "Final_pitch_2.mp4"
 
     def create_program(mode, path, lock):
         from .detection.detection import CameraMode, VideoMode

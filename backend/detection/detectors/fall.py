@@ -4,7 +4,7 @@ from ..overlay import draw_label
 from ...event_types import EventType, AlertLevel
 from ..detection_types import DetectionResult
 
-DOWN_HOLD_SECONDS = 0.2 #5.0        # persistence required to alert
+DOWN_HOLD_SECONDS = 2 #5.0        # persistence required to alert
 RECOVERY_GRACE_SECONDS = 0.7   # sustained upright needed to cancel
 
 # Label rendering. LABEL_Y_OFFSET staggers this detector's per-person label
