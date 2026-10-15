@@ -12,9 +12,11 @@ class FrameStreamer():
         self.program = program
         self.frame_lock = frame_lock
 
-    def _start_stream(self, check_access):
+    def _start_stream(self, check_access, is_current=lambda: True):
         next_check = 0
         while True:
+            if not is_current():
+                return
             if monotonic() >= next_check:
                 try:
                     check_access()
@@ -23,6 +25,8 @@ class FrameStreamer():
                     return
                 next_check = monotonic() + 5
             with self.frame_lock:
+                if not is_current():
+                    return
                 current_frame = self.program.current_annotated_frame
                 fps = self.program.fps
             if current_frame is None: 
@@ -45,8 +49,8 @@ class FrameStreamer():
             )
             sleep(wait_time)
 
-    def get_stream(self, check_access):
-        return StreamingResponse(self._start_stream(check_access),
+    def get_stream(self, check_access, is_current=lambda: True):
+        return StreamingResponse(self._start_stream(check_access, is_current),
                                 media_type="multipart/x-mixed-replace;boundary=frame",
                                 headers={"Cache-Control": "no-store"},
                                 )

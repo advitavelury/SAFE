@@ -23,6 +23,3 @@ export async function signInStaff(email, password) {
   await setPersistence(auth, browserSessionPersistence);
   return signInWithEmailAndPassword(auth, email.trim(), password);
 }
-
-export const INCIDENTS_COLLECTION =
-  import.meta.env.VITE_FIREBASE_INCIDENTS_COLLECTION || "incidents";

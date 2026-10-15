@@ -38,7 +38,7 @@ class DetectorSettings(BaseModel):
     )
     sitting_seconds: float = Field(default=7200, gt=0, le=604800, strict=True)
     isolation_seconds: float = Field(default=3600, gt=0, le=604800, strict=True)
-    sitting_break_seconds: float = Field(default=60, gt=0, le=3600, strict=True)
+    sitting_break_seconds: float = Field(default=3, gt=0, le=3600, strict=True)
     sitting_warning_fraction: float = Field(default=0.5, gt=0, lt=1, strict=True)
 
 

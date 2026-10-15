@@ -26,6 +26,15 @@ def draw_label(frame, text, origin, font_scale, color, thickness):
     cv2.putText(frame, text, (x, y), FONT, font_scale, color, thickness, cv2.LINE_AA)
 
 
+def draw_video_time(frame, seconds):
+    """Draw the current position in the source video below the FPS counter."""
+    minutes, seconds = divmod(max(0, int(seconds)), 60)
+    text = f"Video time: {minutes:02d}:{seconds:02d}"
+    font_scale, thickness = 0.8, 2
+    origin = (10, 75)
+    draw_label(frame, text, origin, font_scale, (0, 255, 0), thickness)
+
+
 def draw_box(frame, box_coords, color, thickness=2):
     """Draw a rectangle outline around box_coords = (x1, y1, x2, y2)."""
     x1, y1, x2, y2 = box_coords

@@ -3,7 +3,7 @@ export function isApprovedStaff(user, profile) {
     && ["admin", "operator"].includes(profile.role));
 }
 
-export function canEditIncidents(user, profile) {
+export function canEditEvents(user, profile) {
   return isApprovedStaff(user, profile) && profile.role === 'admin';
 }
 

@@ -31,7 +31,7 @@ if __name__ == "__main__":
     if video_mode:
         script_dir = Path(__file__).parent
         #video_footage_path = join(script_dir, "..", "..", "my test footage", "Falling backward 1.mp4")
-        video_footage_path = join(script_dir, "detection", "fall footage", "Final_pitch_1.mp4")  # Replace the last argument in the join method with a different file name to test a different video.
+        video_footage_path = join(script_dir, "detection", "fall footage", "Final_pitch_2.mp4")  # Replace the last argument in the join method with a different file name to test a different video.
         if not os.path.isfile(video_footage_path):
             raise Exception(f"Testing video footage file path {video_footage_path} is incorrect.")
         detector = VideoMode(frame_lock=frame_lock, filepath=video_footage_path)

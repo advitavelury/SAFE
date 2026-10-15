@@ -1,7 +1,8 @@
-from fastapi import Depends, FastAPI, HTTPException
+from typing import Literal
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .event_types import Event
 from .staff_auth import StaffAuthorizer
@@ -15,7 +16,12 @@ class CompleteEventRequest(BaseModel):
     completed_by: str | None = Field(default=None, min_length=1)
 
 
-def setup_routes(streamer, program, *, authorizer=None, events=None, settings=None):
+class VideoSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["live", "video"]
+
+
+def setup_routes(streamer, program, *, authorizer=None, events=None, settings=None, source_controller=None):
     authorizer = authorizer or StaffAuthorizer()
     if events is None:
         from .event import event_service
@@ -70,8 +76,34 @@ def setup_routes(streamer, program, *, authorizer=None, events=None, settings=No
         return {"uid": staff.uid, "role": staff.role}
 
     @app.get("/video_feed")
-    def video_feed(staff=Depends(require_staff)):
+    def video_feed(staff=Depends(require_staff), generation: int | None = Query(default=None, ge=0)):
+        if source_controller is not None:
+            current = source_controller.status()["generation"] if generation is None else generation
+            if not source_controller.is_current(current):
+                raise HTTPException(409, "The video source is not running or has changed.")
+            return streamer.get_stream(check_access=lambda: authorizer.verify(staff.token),
+                                       is_current=lambda: source_controller.is_current(current))
         return streamer.get_stream(check_access=lambda: authorizer.verify(staff.token))
+
+    def get_source_controller():
+        if source_controller is None:
+            raise HTTPException(503, "Start the backend with python -m backend.dashboard for source selection.")
+        return source_controller
+
+    @app.get("/video_source")
+    def video_source_status():
+        return get_source_controller().status()
+
+    @app.post("/video_source", status_code=202)
+    def select_video_source(body: VideoSourceRequest):
+        try:
+            return get_source_controller().select(body.mode)
+        except FileNotFoundError as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @app.delete("/video_source", status_code=202)
+    def stop_video_source():
+        return get_source_controller().select(None)
 
     @app.get("/events", response_model=list[Event])
     def get_events():

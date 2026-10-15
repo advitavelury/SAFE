@@ -7,8 +7,22 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api/camera": "http://127.0.0.1:5001",
-      "/api/incidents": "http://127.0.0.1:5001",
+      "/api/admin/detector-settings": {
+        target: "http://127.0.0.1:8000",
+        rewrite: path => path.replace(/^\/api/, ""),
+      },
+      "/api/video-source": {
+        target: "http://127.0.0.1:8000",
+        rewrite: () => "/video_source",
+      },
+      "/api/video-feed": {
+        target: "http://127.0.0.1:8000",
+        rewrite: path => path.replace(/^\/api\/video-feed/, "/video_feed"),
+      },
+      "/api/events": {
+        target: "http://127.0.0.1:8000",
+        rewrite: path => path.replace(/^\/api/, ""),
+      },
     },
   },
 });
