@@ -16,6 +16,7 @@ from .detectors import FallDetector, WanderingDetector, IsolationDetector, Sitti
 from ..event_types import AlertLevel
 from .detection_types import DetectionResult
 from .frame_context import FrameContext
+from .overlay import draw_video_time
 from ..event import event_service
 from ..detector_settings import DetectorSettingsService, apply_detector_settings
 
@@ -242,6 +243,8 @@ class Program(ABC):
                         2,                          # Line thickness
                         cv2.LINE_AA
                     )
+                if self.is_video_mode():
+                    draw_video_time(display_frame, frame_time)
                 with self.frame_lock: # variable is shared by the FrameStreamer method
                     self.current_annotated_frame = display_frame.copy()
 

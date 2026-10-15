@@ -76,7 +76,8 @@ class FallDetector():
         draw_label(frame, position, label_point, LABEL_FONT_SCALE, LABEL_COLOR, LABEL_THICKNESS)
         alert = self.alert_fall_event(person=person, frame_time=frame_time)
         if alert:
-            draw_label(frame, f"Person {person.id} had a fall", (30, 40),
+            # Reserve the first two rows for FPS and the video timestamp.
+            draw_label(frame, f"Person {person.id} had a fall", (10, 110),
                        LABEL_FONT_SCALE, ALERT_COLOR, LABEL_THICKNESS)
             print(f"Person {person.id} had a fall")
             return DetectionResult(
